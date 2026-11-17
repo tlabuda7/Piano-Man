@@ -6,6 +6,8 @@ A phone-friendly web app for learning songs on piano.
 - **Three ways to play**: the phone's microphone (acoustic piano or a keyboard's speakers), a MIDI keyboard (browsers with Web MIDI, so not iPhone Safari), or tapping the on-screen keys.
 - **Listen mode**: plays the song at 50/75/100% speed while the keys light up.
 - **Practice tools**: loop any section, practice one hand at a time, see your first-try score and jump straight to your hardest bar.
+- **Finger numbers**: a suggested finger for every note, worked out by rules in `fingering.js`.
+- **Works offline** once it has been opened online (`sw.js` keeps a copy on the phone).
 - **Add songs**: import a MIDI file or ABC notation (file or paste).
 
 ## Put it on your phone
@@ -20,4 +22,4 @@ The app is plain static files, with no build step. The microphone only works ove
 
 Built-in songs live in `songs.js` as ABC notation. Imported songs are saved only in the browser they were added in.
 
-"Here's a Health to the Company" uses Henrik Norbeck's transcription of the traditional tune (norbeck.nu).
+"Here's a Health to the Company" uses Henrik Norbeck's transcription of the traditional melody (norbeck.nu). The left-hand part was arranged for this app.

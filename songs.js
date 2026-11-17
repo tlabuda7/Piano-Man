@@ -6,15 +6,24 @@ window.BUILTIN_SONGS = [
     abc: `X:1
 T:Here's a Health to the Company
 C:Traditional Irish
-S:Transcription by Henrik Norbeck (norbeck.nu), hn-song-4
+S:Melody: transcription by Henrik Norbeck (norbeck.nu), hn-song-4. Left hand: arranged for this app.
+N:The tune is 16 bars long. It is written out twice here: once for the verse, once for the chorus.
 M:3/4
 L:1/8
 Q:1/4=100
 K:Edor
+V:1
 BA | B2 E2 (EF) | ED B,2 (B,C) | D2 (AG) (ED) | E4
 (EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 (FE) | D4
 (EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 ((3EDC) | D4
-BA | B2 E2 (EF) | (ED) B,2 (B,C) | D2 (AG) (ED) | E4 |]`
+BA | B2 E2 (EF) | (ED) B,2 (B,C) | D2 (AG) (ED) | E4
+BA | B2 E2 (EF) | ED B,2 (B,C) | D2 (AG) (ED) | E4
+(EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 (FE) | D4
+(EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 ((3EDC) | D4
+BA | B2 E2 (EF) | (ED) B,2 (B,C) | D2 (AG) (ED) | E6 |]
+V:2
+z2 | E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 |
+E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,6 |]`
   },
   {
     id: 'ode-to-joy',

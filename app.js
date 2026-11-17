@@ -13,7 +13,7 @@
   // ---------- Song library ----------
   let imported = store.get('pm.songs', []);
   let stats = store.get('pm.stats', {});
-  const opts = Object.assign({ names: true, octave: true }, store.get('pm.opts', {}));
+  const opts = Object.assign({ names: true, octave: true, fingers: true }, store.get('pm.opts', {}));
   const builtins = window.BUILTIN_SONGS.map(b => ({ id: b.id, song: Parsers.parseAbc(b.abc), builtin: true }));
   const library = () => builtins.concat(imported);
 
@@ -50,12 +50,18 @@
     const hasL = S.song.notes.some(n => n.h === 'L');
     $('hands').hidden = !hasL;
     if (!hasL) { S.hands = 'B'; $('hands').value = 'B'; }
-    const ms = S.song.notes.map(n => n.m);
+    if (!S.song.notes.some(n => n.f)) window.assignFingering(S.song);
+    S.loopA = S.loopB = null;
+    buildSteps(); setRange(); restart();
+  }
+
+  // The keyboard shows only the octaves the chosen hand(s) need, so keys stay as large as possible.
+  function setRange() {
+    const ms = [].concat(...S.steps.map(s => s.notes.map(n => n.m)));
     S.lo = Math.floor(Math.min(...ms) / 12) * 12;
     S.hi = Math.ceil((Math.max(...ms) + 1) / 12) * 12 - 1;
     while (S.hi - S.lo + 1 < 24) S.hi += 12;
-    S.loopA = S.loopB = null;
-    buildSteps(); layoutKeys(); restart();
+    layoutKeys();
   }
 
   function restart() {
@@ -90,6 +96,17 @@
 
   function stepNames(step) { return step.notes.map(n => noteName(n.m)).join(' + '); }
 
+  function fingerText(step) {
+    if (!opts.fingers) return 'Play the lit key. ';
+    const twoHands = S.song.notes.some(n => n.h === 'L');
+    const parts = ['R', 'L'].map(h => {
+      const fs = step.notes.filter(n => n.h === h && n.f).map(n => n.f);
+      if (!fs.length) return '';
+      return (twoHands ? (h === 'R' ? 'Right ' : 'Left ') : '') + (fs.length > 1 ? 'fingers ' : 'finger ') + fs.join('+');
+    }).filter(Boolean);
+    return parts.length ? '<b>' + parts.join(', ') + '.</b> ' : 'Play the lit key. ';
+  }
+
   function prompt(kind) {
     if (S.mode === 'listen') {
       coach('', '', S.playing ? 'Playing. Watch which keys light up.' : 'Press <b>Play</b> to hear the song and watch the keys.');
@@ -97,7 +114,7 @@
     }
     const step = S.steps[S.idx];
     const where = `Note ${S.idx + 1} of ${S.steps.length} · ${barLabel(barOf(step.t))}`;
-    coach(kind || '', stepNames(step), (kind === 'ok' ? '<b>Good.</b> ' : 'Play the lit key. ') + where);
+    coach(kind || '', stepNames(step), (kind === 'ok' ? '<b>Good.</b> ' : '') + fingerText(step) + where);
   }
 
   // ---------- Learn mode ----------
@@ -326,13 +343,14 @@
       if (yb < 0 || yt > hitY) continue;
       const k = keyOf(n.m); if (!k) continue;
       const active = S.hands === 'B' || n.h === S.hands || !s.notes.some(x => x.h === S.hands);
-      const w = Math.max(k.w - 3, k.black ? 15 : 10), x = k.x + k.w / 2 - w / 2;
+      const w = Math.max(k.w - 3, 15), x = k.x + k.w / 2 - w / 2;
       ctx.globalAlpha = active ? 1 : 0.3;
       ctx.fillStyle = COL[n.h];
       rr(x, yt, w, h, 5); ctx.fill();
-      if (opts.names && w >= 13) {
-        const label = NAMES[n.m % 12].replace('#', '\u266f');
-        ctx.fillStyle = '#1a1405'; ctx.font = '600 ' + Math.min(12, w * (label.length > 1 ? 0.55 : 0.62)) + 'px sans-serif';
+      const showFinger = opts.fingers && n.f && active;
+      if (opts.names || showFinger) {
+        const label = showFinger ? String(n.f) : NAMES[n.m % 12].replace('#', '\u266f');
+        ctx.fillStyle = '#1a1405'; ctx.font = '700 ' + Math.min(13, w * (label.length > 1 ? 0.6 : 0.75)) + 'px sans-serif';
         ctx.fillText(label, x + w / 2, yb - 9);
       }
       ctx.globalAlpha = 1;
@@ -437,7 +455,7 @@
   $('hands').onchange = e => {
     S.hands = e.target.value;
     const t = S.steps[S.idx].t;
-    buildSteps();
+    buildSteps(); setRange();
     S.loopA = S.loopB = null;
     S.idx = Math.max(0, S.steps.findIndex(s => s.t >= t - 1e-6));
     S.hit.clear(); S.misses = []; S.finished = false;
@@ -517,7 +535,8 @@
     try { addSong(Parsers.parseAbc($('abcText').value)); }
     catch (err) { $('importErr').textContent = err.message || 'Could not read that tune.'; }
   };
-  $('optNames').checked = opts.names; $('optOctave').checked = opts.octave;
+  $('optNames').checked = opts.names; $('optOctave').checked = opts.octave; $('optFingers').checked = opts.fingers;
+  $('optFingers').onchange = e => { opts.fingers = e.target.checked; store.set('pm.opts', opts); prompt(); };
   $('optNames').onchange = e => { opts.names = e.target.checked; store.set('pm.opts', opts); };
   $('optOctave').onchange = e => { opts.octave = e.target.checked; store.set('pm.opts', opts); };
 
@@ -530,6 +549,9 @@
   }
   document.addEventListener('pointerdown', keepAwake);
   document.addEventListener('visibilitychange', keepAwake);
+
+  // ---------- Offline copy ----------
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);

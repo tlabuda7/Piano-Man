@@ -137,6 +137,7 @@
     <div class="row"><button id="abcAdd">Add pasted tune</button><span id="importErr"></span></div>
 
     <h3>Settings</h3>
+    <label class="chk"><input id="optFingers" type="checkbox" checked> Show finger numbers (1 = thumb, 5 = little finger)</label>
     <label class="chk"><input id="optNames" type="checkbox" checked> Show note names</label>
     <label class="chk"><input id="optOctave" type="checkbox" checked> Microphone: accept the right note in any octave</label>
     <p>With the microphone, the app hears one note at a time. For chords it accepts any note of the chord. A MIDI keyboard is used automatically in browsers that support it (not Safari on iPhone).</p>
@@ -144,6 +145,7 @@
 
 <script src="songs.js"></script>
 <script src="parsers.js"></script>
+<script src="fingering.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
