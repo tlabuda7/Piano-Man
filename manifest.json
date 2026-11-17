@@ -1,0 +1,9 @@
+{
+  "name": "Piano Man",
+  "short_name": "Piano Man",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#12141c",
+  "theme_color": "#12141c",
+  "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}

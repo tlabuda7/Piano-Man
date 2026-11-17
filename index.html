@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Piano Man</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Piano Man">
+<meta name="theme-color" content="#12141c">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  /* Layout: one screen. Song bar, coach banner, controls, then the note lane falling onto the keyboard. */
+  :root {
+    --bg: #12141c; --panel: #1c2030; --line: #2c3246; --fg: #ece8dc; --dim: #9aa0b4;
+    --right: #f2b33d; --left: #4fc3c7; --ok: #5fd38a; --bad: #ff6b6b;
+    --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font: 15px/1.35 var(--ui);
+    display: flex; flex-direction: column; overflow: hidden;
+    padding-top: env(safe-area-inset-top, 0px); touch-action: manipulation;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  [hidden] { display: none !important; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 12px; min-height: 40px; cursor: pointer;
+  }
+  button:active { filter: brightness(1.3); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--right); outline-offset: 2px; }
+  button.on { background: var(--right); border-color: var(--right); color: #1a1405; font-weight: 600; }
+  button.primary { background: var(--right); border-color: var(--right); color: #1a1405; font-weight: 600; }
+  .bar { display: flex; gap: 8px; align-items: center; padding: 8px max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); flex-wrap: wrap; }
+  #songBtn { flex: 1; min-width: 0; text-align: left; font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #songBtn small { color: var(--dim); font-weight: 400; margin-left: 6px; }
+  .seg { display: flex; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 10px 0 0 10px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 10px 10px 0; }
+  #coach {
+    margin: 8px 12px 0; padding: 10px 14px; border-radius: 12px; background: var(--panel);
+    border: 2px solid var(--line); min-height: 64px; display: flex; align-items: center; gap: 12px;
+    transition: border-color .15s, background .15s;
+  }
+  #coach.ok { border-color: var(--ok); background: #1d3328; }
+  #coach.bad { border-color: var(--bad); background: #3a2024; }
+  #coachBig { font-size: 26px; font-weight: 700; min-width: 64px; }
+  #coachMsg { flex: 1; min-width: 0; color: var(--dim); }
+  #coachMsg b { color: var(--fg); }
+  #coachActions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; min-height: 40px; }
+  #scrub { flex: 1; min-width: 80px; accent-color: var(--right); }
+  #loopInfo, #micInfo { color: var(--dim); font-size: 13px; }
+  #stageWrap { flex: 1; min-height: 0; margin-top: 8px; margin-bottom: env(safe-area-inset-bottom, 0px); position: relative; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+  /* Song library sheet */
+  #sheet { position: fixed; inset: 0; background: var(--bg); z-index: 5; display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(16px, env(safe-area-inset-left, 0px)); overflow-y: auto; -webkit-user-select: text; user-select: text; }
+  #sheet h2 { font-size: 20px; margin: 16px 0 8px; }
+  #sheet h3 { font-size: 15px; margin: 20px 0 6px; }
+  #sheet p { color: var(--dim); margin: 4px 0 10px; }
+  .song { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .song button.pick { flex: 1; text-align: left; border: 0; background: none; padding: 10px 0; min-width: 0; }
+  .song .meta { color: var(--dim); font-size: 13px; display: block; }
+  textarea { width: 100%; min-height: 120px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; -webkit-user-select: text; user-select: text; }
+  #importErr { color: var(--bad); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+  label.chk { display: flex; gap: 8px; align-items: center; padding: 8px 0; }
+  label.chk input { width: 20px; height: 20px; accent-color: var(--right); }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button id="songBtn" aria-label="Choose a song"></button>
+    <div class="seg" role="group" aria-label="Mode">
+      <button id="modeLearn" class="on">Learn</button>
+      <button id="modeListen">Listen</button>
+    </div>
+  </div>
+
+  <div id="coach" aria-live="polite">
+    <div id="coachBig"></div>
+    <div id="coachMsg"></div>
+    <div id="coachActions"></div>
+  </div>
+
+  <div class="bar">
+    <button id="micBtn">Use microphone</button>
+    <button id="restartBtn">Restart</button>
+    <button id="playBtn" hidden>Play</button>
+    <button id="hearBtn">Hear it</button>
+    <select id="hands" aria-label="Hands">
+      <option value="B">Both hands</option>
+      <option value="R">Right hand</option>
+      <option value="L">Left hand</option>
+    </select>
+    <select id="speed" aria-label="Playback speed">
+      <option value="0.5">50% speed</option>
+      <option value="0.75">75% speed</option>
+      <option value="1" selected>100% speed</option>
+    </select>
+    <span id="micInfo"></span>
+  </div>
+  <div class="bar">
+    <input id="scrub" type="range" min="0" max="1" value="0" step="1" aria-label="Position in song">
+    <button id="loopA">Loop from here</button>
+    <button id="loopB">to here</button>
+    <button id="loopClear" hidden>Clear loop</button>
+    <span id="loopInfo"></span>
+  </div>
+
+  <div id="stageWrap"><canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas></div>
+
+  <div id="sheet" hidden>
+    <div class="row" style="justify-content: space-between">
+      <h2>Songs</h2>
+      <button id="sheetClose">Done</button>
+    </div>
+    <div id="songList"></div>
+
+    <h3>Add a song</h3>
+    <p>Load a MIDI file (.mid) or an ABC file (.abc), or paste ABC notation below. Folk tunes are easy to find as ABC at abcnotation.com and thesession.org.</p>
+    <div class="row">
+      <button id="fileBtn" class="primary">Choose a file</button>
+      <input id="file" type="file" accept=".mid,.midi,.abc,.txt,audio/midi,text/plain" hidden>
+    </div>
+    <textarea id="abcText" placeholder="X:1&#10;T:My tune&#10;M:4/4&#10;L:1/4&#10;K:C&#10;C D E F | G A B c |]" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    <div class="row"><button id="abcAdd">Add pasted tune</button><span id="importErr"></span></div>
+
+    <h3>Settings</h3>
+    <label class="chk"><input id="optNames" type="checkbox" checked> Show note names</label>
+    <label class="chk"><input id="optOctave" type="checkbox" checked> Microphone: accept the right note in any octave</label>
+    <p>With the microphone, the app hears one note at a time. For chords it accepts any note of the chord. A MIDI keyboard is used automatically in browsers that support it (not Safari on iPhone).</p>
+  </div>
+
+<script src="songs.js"></script>
+<script src="parsers.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
