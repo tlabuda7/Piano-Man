@@ -4,7 +4,7 @@
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const noteName = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
   const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
-  const COL = { bg: '#12141c', lane: '#171a26', line: '#2c3246', fg: '#ece8dc', dim: '#9aa0b4', R: '#f2b33d', L: '#4fc3c7', ok: '#5fd38a', bad: '#ff6b6b', white: '#f3efe4', black: '#20232e' };
+  const COL = { bg: '#10121a', lane: '#181c2a', line: '#2c3246', fg: '#ece8dc', dim: '#9aa0b4', R: '#f2b33d', L: '#4fc3c7', ok: '#5fd38a', bad: '#ff6b6b', white: '#f3efe4', black: '#20232e' };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } }
@@ -83,8 +83,8 @@
   let coachTimer = 0;
   function coach(kind, big, msg, actions) {
     const c = $('coach');
-    c.className = kind || '';
     $('coachBig').textContent = big;
+    $('coachBig').classList.toggle('long', big.length > 4);
     $('coachMsg').innerHTML = msg;
     const a = $('coachActions'); a.textContent = '';
     (actions || []).forEach(([label, fn, primary]) => {
@@ -93,30 +93,29 @@
       b.onclick = fn; a.appendChild(b);
     });
     clearTimeout(coachTimer);
-    if (kind === 'ok') coachTimer = setTimeout(() => { c.className = ''; }, 350);
   }
 
   function stepNames(step) { return step.notes.map(n => noteName(n.m)).join(' + '); }
 
   function fingerText(step) {
-    if (!opts.fingers) return 'Play the lit key. ';
+    if (!opts.fingers) return 'Play the lit key.';
     const twoHands = S.song.notes.some(n => n.h === 'L');
     const parts = ['R', 'L'].map(h => {
       const fs = step.notes.filter(n => n.h === h && n.f).map(n => n.f);
       if (!fs.length) return '';
-      return (twoHands ? (h === 'R' ? 'Right ' : 'Left ') : '') + (fs.length > 1 ? 'fingers ' : 'finger ') + fs.join('+');
+      return (twoHands ? (h === 'R' ? 'Right ' : 'Left ') : (fs.length > 1 ? 'Fingers ' : 'Finger ')) + fs.join('+');
     }).filter(Boolean);
-    return parts.length ? '<b>' + parts.join(', ') + '.</b> ' : 'Play the lit key. ';
+    return parts.length ? '<b>' + parts.join(' · ') + '</b>' : 'Play the lit key.';
   }
 
   function prompt(kind) {
     if (S.mode === 'listen') {
-      coach('', '', S.playing ? 'Playing. Watch which keys light up.' : 'Press <b>Play</b> to hear the song and watch the keys.');
+      coach('', '', S.playing ? 'Watch which keys light up.' : 'Hear the song and watch the keys.');
       return;
     }
     const step = S.steps[S.idx];
-    const where = `Note ${S.idx + 1} of ${S.steps.length} · ${barLabel(barOf(step.t))}`;
-    coach(kind || '', stepNames(step), (kind === 'ok' ? '<b>Good.</b> ' : '') + fingerText(step) + where);
+    const where = barLabel(barOf(step.t)).replace(/^./, ch => ch.toUpperCase());
+    coach('', stepNames(step), fingerText(step) + `<span class="sub">${where}</span>`);
   }
 
   // ---------- Learn mode ----------
@@ -130,7 +129,7 @@
     if (S.mode !== 'learn' || S.finished) return;
     if (tooEarly()) {
       const h = S.hold;
-      coach('ok', h.names, `<b>Keep holding.</b> This note lasts ${beatText(h.beats)}.`);
+      coach('', h.names, `<b>Keep holding.</b><span class="sub">This note lasts ${beatText(h.beats)}.</span>`);
       clearTimeout(coachTimer);
       return;
     }
@@ -147,7 +146,7 @@
     S.misses[S.idx] = (S.misses[S.idx] || 0) + 1;
     flash(m, 'bad');
     const hint = S.misses[S.idx] % 3 === 0;
-    coach('bad', stepNames(step), `<b>Try again.</b> That was ${noteName(m)}. Play <b>${want.map(n => noteName(n.m)).join(' + ')}</b>.` + (hint ? ' Listen, this is how it sounds.' : ''));
+    coach('', stepNames(step), `<b>Try again.</b> That was ${noteName(m)}.<span class="sub">${hint ? 'Listen, this is how it sounds.' : fingerText(step).replace(/<[^>]+>/g, '')}</span>`);
     if (hint) setTimeout(() => want.forEach(n => tone(n.m, 0.9)), src === 'tap' ? 500 : 150);
   }
 
@@ -172,7 +171,7 @@
     const h = S.hold;
     if (!h || !h.gate || h.tipped || clock() - h.start > h.dur * 0.6) return;
     h.tipped = true;
-    coach('', h.names, `<b>Let go too soon.</b> Hold it for the full ${beatText(h.beats)}.`);
+    coach('', h.names, `<b>Let go too soon.</b><span class="sub">Hold it for the full ${beatText(h.beats)}.</span>`);
   }
 
   function advance() {
@@ -188,7 +187,7 @@
       S.hold = { start: clock(), dur, fromV: S.view, toV: S.steps[S.idx].t, beats, gate: beats > 1.01, early: Math.max(150, beatMs * 0.3), names: stepNames(prev), tipped: false };
       if (S.hold.gate) {
         prev.notes.forEach(n => flash(n.m, 'ok', dur - S.hold.early));
-        coach('ok', S.hold.names, `<b>Good.</b> Hold it for ${beatText(beats)}.`);
+        coach('', S.hold.names, `<b>Hold it</b> for ${beatText(beats)}.`);
         clearTimeout(coachTimer); updateUI();
         return;
       }
@@ -209,7 +208,7 @@
     stats[S.id] = st; store.set('pm.stats', stats);
     const actions = [['Play again', restart, worst === undefined]];
     if (worst !== undefined) actions.unshift(['Practice ' + barLabel(+worst), () => loopBar(+worst), true]);
-    coach('ok', pct + '%', `<b>Finished.</b> ${clean} of ${total} notes right first time.` + (worst !== undefined ? ` Hardest spot: ${barLabel(+worst)}.` : ' No mistakes.'), actions);
+    coach('', pct + '%', `<b>Finished.</b> ${clean} of ${total} right first time.<span class="sub">` + (worst !== undefined ? `Hardest spot: ${barLabel(+worst)}.` : 'No mistakes.') + '</span>', actions);
     clearTimeout(coachTimer);
     updateUI();
   }
@@ -375,7 +374,7 @@
   async function toggleMic() {
     if (mic.on) {
       mic.stream.getTracks().forEach(t => t.stop());
-      mic.on = false; $('micBtn').classList.remove('on'); $('micBtn').textContent = 'Use microphone'; $('micInfo').textContent = ''; $('micLevel').hidden = true;
+      mic.on = false; $('micBtn').classList.remove('on'); $('micLabel').textContent = 'Mic off'; $('micInfo').textContent = ''; $('micLevel').hidden = true;
       return;
     }
     try {
@@ -386,13 +385,15 @@
       a.createMediaStreamSource(mic.stream).connect(mic.an);
       mic.time = new Float32Array(FFT_N); mic.sr = a.sampleRate;
       mic.frames = []; mic.floor = 0.01; mic.lastC = null; mic.hitAt = mic.prevHitAt = -1e9; mic.on = true;
-      $('micBtn').classList.add('on'); $('micBtn').textContent = 'Microphone on';
+      $('micBtn').classList.add('on'); $('micLabel').textContent = 'Mic on';
       $('micInfo').textContent = 'Listening for your piano';
       $('micLevel').hidden = false;
     } catch (e) {
-      $('micInfo').textContent = e.message === 'unsupported'
+      const why = e.message === 'unsupported'
         ? 'This browser cannot use the microphone here. Open the app over https in Safari.'
         : 'Microphone blocked. Allow it in your browser settings, then try again.';
+      $('micInfo').textContent = why;
+      coach('', '', why);
     }
   }
 
@@ -536,9 +537,11 @@
 
   function draw(now) {
     const { W, H, hitY } = S, s = S.song;
-    ctx.fillStyle = COL.lane; ctx.fillRect(0, 0, W, H);
+    const lane = ctx.createLinearGradient(0, 0, 0, hitY);
+    lane.addColorStop(0, COL.bg); lane.addColorStop(1, COL.lane);
+    ctx.fillStyle = lane; ctx.fillRect(0, 0, W, H);
     // octave guides and bar lines
-    ctx.strokeStyle = COL.line; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1; ctx.beginPath();
     S.keys.forEach(k => { if (k.m % 12 === 0 && k.x > 0) { ctx.moveTo(k.x, 0); ctx.lineTo(k.x, hitY); } });
     const firstBar = Math.floor((S.view - s.pickup) / s.barLen);
     for (let b = firstBar; b < firstBar + 12; b++) {
@@ -558,7 +561,8 @@
       const w = Math.max(k.w - 3, 15), x = k.x + k.w / 2 - w / 2;
       ctx.globalAlpha = active ? 1 : 0.3;
       ctx.fillStyle = COL[n.h];
-      rr(x, yt, w, h, 5); ctx.fill();
+      rr(x, yt, w, h, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'; rr(x + 2, yt + 2, w - 4, Math.min(h - 4, 5), 3); ctx.fill(); // soft highlight
       const showFinger = opts.fingers && n.f && active;
       if (opts.names || showFinger) {
         const label = showFinger ? String(n.f) : NAMES[n.m % 12].replace('#', '\u266f');
@@ -568,7 +572,7 @@
       ctx.globalAlpha = 1;
     }
     // keyboard
-    ctx.fillStyle = COL.bg; ctx.fillRect(0, hitY, W, H - hitY);
+    ctx.fillStyle = '#07080c'; ctx.fillRect(0, hitY, W, H - hitY);
     const targets = new Map();
     if (S.mode === 'learn' && !S.finished && !tooEarly()) step.notes.forEach(n => { if (!S.hit.has(n.m)) targets.set(n.m, n.h); });
     const fillFor = k => {
@@ -580,8 +584,14 @@
     for (const pass of [false, true]) {
       for (const k of S.keys) {
         if (k.black !== pass) continue;
-        ctx.fillStyle = fillFor(k);
-        rr(k.x + 0.5, hitY + 1, k.w - 1, k.h - 2, k.black ? 3 : 5); ctx.fill();
+        const base = fillFor(k), plain = base === COL.white || base === COL.black;
+        if (plain) {
+          const g = ctx.createLinearGradient(0, hitY, 0, hitY + k.h);
+          if (k.black) { g.addColorStop(0, '#2b2f3d'); g.addColorStop(1, '#14161d'); }
+          else { g.addColorStop(0, '#d9d5ca'); g.addColorStop(0.12, COL.white); g.addColorStop(1, '#fffdf6'); }
+          ctx.fillStyle = g;
+        } else ctx.fillStyle = base;
+        rr(k.x + 0.75, hitY + 2, k.w - 1.5, k.h - 3, k.black ? 3 : 5); ctx.fill();
         const lit = targets.has(k.m) || S.flashes.has(k.m);
         if (opts.names && (lit || (!k.black && k.m % 12 === 0)) && k.w >= 11) {
           ctx.fillStyle = k.black && !lit ? COL.dim : '#1a1405';
@@ -590,7 +600,10 @@
         }
       }
     }
-    ctx.fillStyle = COL.R; ctx.fillRect(0, hitY - 2, W, 2);
+    const glow = ctx.createLinearGradient(0, hitY - 26, 0, hitY);
+    glow.addColorStop(0, 'rgba(242,179,61,0)'); glow.addColorStop(1, 'rgba(242,179,61,0.16)');
+    ctx.fillStyle = glow; ctx.fillRect(0, hitY - 26, W, 26);
+    ctx.fillStyle = COL.R; ctx.fillRect(0, hitY - 1.5, W, 1.5);
   }
 
   let lastT = 0;
@@ -631,17 +644,17 @@
     const st = stats[S.id];
     $('songBtn').innerHTML = '';
     $('songBtn').append(S.song.title);
-    const sm = document.createElement('small'); sm.textContent = st && st.best != null ? 'best ' + st.best + '%' : 'change';
+    const sm = document.createElement('small'); sm.textContent = st && st.best != null ? 'best ' + st.best + '%' : 'tap to change';
     $('songBtn').append(sm);
     $('scrub').max = S.steps.length - 1; $('scrub').value = S.idx;
+    $('pos').textContent = `${S.idx + 1} / ${S.steps.length}`;
     const looping = S.loopA != null || S.loopB != null;
     $('loopClear').hidden = !looping;
-    $('loopInfo').textContent = looping ? `Loop: notes ${(S.loopA || 0) + 1}–${(S.loopB != null ? S.loopB : S.steps.length - 1) + 1}` : '';
+    $('loopInfo').textContent = looping ? `Repeating notes ${(S.loopA || 0) + 1} to ${(S.loopB != null ? S.loopB : S.steps.length - 1) + 1}.` : 'Move the slider to a spot, then mark where the section starts and ends.';
     $('modeLearn').classList.toggle('on', S.mode === 'learn');
     $('modeListen').classList.toggle('on', S.mode === 'listen');
     $('playBtn').hidden = S.mode !== 'listen'; $('playBtn').textContent = S.playing ? 'Pause' : 'Play';
-    $('playBtn').classList.toggle('primary', !S.playing);
-    $('hearBtn').hidden = S.mode !== 'learn';
+    $('hearBtn').hidden = S.mode !== 'learn' || S.finished;
   }
 
   function setMode(mode) {
@@ -731,6 +744,9 @@
     $('sheet').hidden = true;
   }
 
+  $('moreBtn').onclick = () => { $('moreWrap').hidden = false; };
+  $('moreClose').onclick = () => { $('moreWrap').hidden = true; };
+  $('moreWrap').onclick = e => { if (e.target === $('moreWrap')) $('moreWrap').hidden = true; };
   $('songBtn').onclick = () => { renderList(); $('importErr').textContent = ''; $('sheet').hidden = false; };
   $('sheetClose').onclick = () => { $('sheet').hidden = true; };
   $('fileBtn').onclick = () => $('file').click();
