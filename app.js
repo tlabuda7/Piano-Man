@@ -285,7 +285,6 @@
   function noteInfo(fr, m) {
     const mag = fr.mag, f0 = 440 * Math.pow(2, (m - 69) / 12), perHz = FFT_N / mic.sr;
     const pk = f => { const i = Math.round(f * perHz); return Math.max(mag[i - 1] || 0, mag[i] || 0, mag[i + 1] || 0); };
-    const at = f => mag[Math.round(f * perHz)] || 0;
     let e = 0, peaks = 0, used = 0, first = null;
     const hs = [];
     for (let h = 1; h <= 5; h++) {
@@ -293,8 +292,12 @@
       if (f * perHz >= mag.length - 3) break;
       if (f * 0.0293 * perHz < 2) continue; // too low to separate from neighbouring keys; rely on higher harmonics
       const p = pk(f);
-      // A real note is a sharp peak with a dip a quarter-tone either side, even if the next key is still ringing.
-      const isPeak = p > 2 * Math.max(at(f * 0.9715), at(f * 1.0293)) && p > 0.06 * fr.max;
+      // A real note is a sharp peak that towers over the typical level within a semitone either side.
+      // (The median ignores a neighbouring key that is still ringing; plain noise almost never passes.)
+      const c0 = Math.round(f * perHz), span = Math.max(4, Math.round(f * 0.0595 * perHz)), around = [];
+      for (let i = c0 - span; i <= c0 + span; i++) if (Math.abs(i - c0) > 2) around.push(mag[i] || 0);
+      around.sort();
+      const isPeak = p > 3 * around[around.length >> 1] && p > 0.06 * fr.max;
       if (first === null) first = isPeak;
       if (isPeak) peaks++;
       e += p; used++;
@@ -304,6 +307,33 @@
     // Strict octave: reject if this is really the same note an octave lower (which adds a peak at 1.5x).
     if (ok && !opts.octave && pk(1.5 * f0) > 0.4 * pk(f0)) ok = false;
     return { e, ok, hs };
+  }
+
+  // How much of the sound that just appeared belongs to note m (0 to 1). A creak, a cough or a knock
+  // spreads its energy everywhere; a piano note puts it on that note's own harmonics.
+  function noteBins(m) {
+    const f0 = 440 * Math.pow(2, (m - 69) / 12), perHz = FFT_N / mic.sr, bins = [];
+    let last = -1;
+    for (let h = 1; h <= 12 && h * f0 < 5000; h++) {
+      const c0 = Math.round(h * f0 * perHz), tol = 2 + Math.round(h * f0 * perHz * 0.012); // strings run slightly sharp higher up
+      for (let i = Math.max(last + 1, c0 - tol); i <= c0 + tol; i++) { bins.push(i); last = i; }
+    }
+    return bins;
+  }
+  function shareOfNewSound(fr, m) {
+    const older = mic.frames.filter(f => f !== fr).slice(-8);
+    if (!older.length) return 0;
+    const bins = noteBins(m).filter(i => i < fr.mag.length);
+    const en = f => bins.reduce((t, i) => t + f.mag[i] * f.mag[i], 0);
+    // Compare with the most recent moment before this note started.
+    const low = Math.min(...older.map(en));
+    let q = older[0];
+    for (const f of older) if (en(f) <= 1.2 * low + 1e-12) q = f;
+    const grew = i => Math.max(0, fr.mag[i] * fr.mag[i] - q.mag[i] * q.mag[i]);
+    const perHz = FFT_N / mic.sr, hi = Math.min(fr.mag.length, Math.round(5000 * perHz));
+    let all = 0;
+    for (let i = Math.round(60 * perHz); i < hi; i++) all += grew(i);
+    return all > 0 ? bins.reduce((t, i) => t + grew(i), 0) / all : 0;
   }
 
   // Loudness of note m in a short (85 ms) slice of sound: quick enough to catch a key being struck again.
@@ -425,7 +455,12 @@
         const again = mic.frames.filter(f => f !== fr && f.t > mic.hitAt).slice(-3);
         const restruck = c === mic.lastC && now - mic.hitAt >= 200 && again.length > 0 &&
           shortEnergy(fr.short, c) > 1.4 * Math.min(...again.map(f => shortEnergy(f.short, c)));
-        if (rose || restruck) {
+        // Guard against noises: most of the new sound must be this note, and it must last two looks in a row.
+        const real = restruck || (rose && shareOfNewSound(fr, c) >= 0.3);
+        const steady = real && mic.pend === c && mic.pendAt === mic.frames[mic.frames.length - 2].t;
+        if (real && !steady) { mic.pend = c; mic.pendAt = now; return; }
+        if (steady) {
+          mic.pend = null;
           mic.prevHitAt = mic.hitAt; mic.hitAt = now; mic.lastC = c; mic.cand = null;
           mic.lastNotes = S.steps[S.idx].notes.map(x => x.m).concat(c);
           $('micInfo').textContent = 'Heard ' + noteName(n.m);
