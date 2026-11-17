@@ -46,8 +46,10 @@
   #coach {
     margin: 8px 12px 0; padding: 10px 14px; border-radius: 12px; background: var(--panel);
     border: 2px solid var(--line); min-height: 64px; display: flex; align-items: center; gap: 12px;
-    transition: border-color .15s, background .15s;
+    transition: border-color .15s, background .15s; position: relative; overflow: hidden;
   }
+  #holdBar { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; }
+  #holdBar i { display: block; height: 100%; width: 0; background: var(--ok); }
   #coach.ok { border-color: var(--ok); background: #1d3328; }
   #coach.bad { border-color: var(--bad); background: #3a2024; }
   #coachBig { font-size: 26px; font-weight: 700; min-width: 64px; }
@@ -90,6 +92,7 @@
     <div id="coachBig"></div>
     <div id="coachMsg"></div>
     <div id="coachActions"></div>
+    <div id="holdBar"><i></i></div>
   </div>
 
   <div class="bar">

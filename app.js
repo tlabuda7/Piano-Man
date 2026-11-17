@@ -10,6 +10,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } }
   };
 
+  let clock = () => performance.now();
+
   // ---------- Song library ----------
   let imported = store.get('pm.songs', []);
   let stats = store.get('pm.stats', {});
@@ -21,7 +23,7 @@
   const S = {
     id: null, song: null, steps: [], idx: 0, mode: 'learn', playing: false, view: 0, li: 0,
     hands: 'B', tempo: 1, loopA: null, loopB: null, hit: new Set(), misses: [], finished: false,
-    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0
+    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null
   };
 
   function barOf(t) {
@@ -66,7 +68,7 @@
 
   function restart() {
     S.idx = S.loopA != null ? S.loopA : 0;
-    S.hit.clear(); S.misses = []; S.finished = false; S.playing = false;
+    S.hit.clear(); S.misses = []; S.finished = false; S.playing = false; endHold();
     S.view = S.steps[S.idx].t - (S.mode === 'listen' ? 1 : 0);
     seekListen();
     prompt(); updateUI();
@@ -126,6 +128,12 @@
 
   function noteInput(m, src) {
     if (S.mode !== 'learn' || S.finished) return;
+    if (tooEarly()) {
+      const h = S.hold;
+      coach('ok', h.names, `<b>Keep holding.</b> This note lasts ${beatText(h.beats)}.`);
+      clearTimeout(coachTimer);
+      return;
+    }
     const step = S.steps[S.idx];
     const want = step.notes.filter(n => !S.hit.has(n.m));
     const match = findMatch(m, src);
@@ -143,11 +151,48 @@
     if (hint) setTimeout(() => want.forEach(n => tone(n.m, 0.9)), src === 'tap' ? 500 : 150);
   }
 
+  // After a right note the lane scrolls to the next note in time with the music.
+  // A note longer than one beat has to be held: the next note is not accepted until its time is nearly up.
+  const beatText = b => (Math.abs(b - Math.round(b)) < 0.01 ? Math.round(b) : +b.toFixed(1)) + (Math.abs(b - 1) < 0.01 ? ' beat' : ' beats');
+  function endHold() { S.hold = null; $('holdBar').firstElementChild.style.width = '0'; }
+  function tooEarly() {
+    const h = S.hold;
+    return !!(h && h.gate && h.dur - (clock() - h.start) > h.early);
+  }
+  function tickHold(now) {
+    const h = S.hold;
+    if (!h) return false;
+    const k = (now - h.start) / h.dur;
+    if (k >= 1) { S.view = h.toV; endHold(); prompt(); return true; }
+    S.view = h.fromV + (h.toV - h.fromV) * k;
+    if (h.gate) $('holdBar').firstElementChild.style.width = Math.round(k * 100) + '%';
+    return true;
+  }
+  function released() {
+    const h = S.hold;
+    if (!h || !h.gate || h.tipped || clock() - h.start > h.dur * 0.6) return;
+    h.tipped = true;
+    coach('', h.names, `<b>Let go too soon.</b> Hold it for the full ${beatText(h.beats)}.`);
+  }
+
   function advance() {
+    const prev = S.steps[S.idx];
     S.hit.clear();
     S.idx++;
     if (S.loopB != null && S.idx > S.loopB) S.idx = S.loopA || 0;
-    else if (S.idx >= S.steps.length) return finish();
+    else if (S.idx >= S.steps.length) { endHold(); return finish(); }
+    const beats = S.steps[S.idx].t - prev.t;
+    endHold();
+    if (beats > 0) {
+      const beatMs = 60000 / (S.song.bpm * S.tempo), dur = beats * beatMs;
+      S.hold = { start: clock(), dur, fromV: S.view, toV: S.steps[S.idx].t, beats, gate: beats > 1.01, early: Math.max(150, beatMs * 0.3), names: stepNames(prev), tipped: false };
+      if (S.hold.gate) {
+        prev.notes.forEach(n => flash(n.m, 'ok', dur - S.hold.early));
+        coach('ok', S.hold.names, `<b>Good.</b> Hold it for ${beatText(beats)}.`);
+        clearTimeout(coachTimer); updateUI();
+        return;
+      }
+    }
     prompt('ok'); updateUI();
   }
 
@@ -195,12 +240,87 @@
       o.type = type; o.frequency.value = f * mult; og.gain.value = vol;
       o.connect(og); og.connect(g); o.start(t); o.stop(t + dur + 0.4);
     });
-    S.muteMicUntil = Math.max(S.muteMicUntil, performance.now() + (dur + 0.45) * 1000);
+    S.muteMicUntil = Math.max(S.muteMicUntil, clock() + (dur + 0.45) * 1000);
   }
-  function flash(m, kind, ms) { S.flashes.set(m, { kind, until: performance.now() + (ms || 320) }); }
+  function flash(m, kind, ms) { S.flashes.set(m, { kind, until: clock() + (ms || 320) }); }
 
-  // ---------- Microphone pitch detection (YIN) ----------
-  const mic = { on: false, an: null, buf: null, d: null, stream: null, cand: null, candN: 0, last: null, armed: true, prevRms: 0, quiet: 0, nextAt: 0 };
+  // ---------- Microphone listening ----------
+  // Right notes: the app knows which note it is waiting for, so it looks for that note's own
+  // frequencies appearing in the sound. This works at low volume and while other notes still ring.
+  // Wrong notes: a separate pitch tracker (YIN) has to hear one clear, steady, different note.
+  const FFT_N = 16384;
+  const mic = { on: false, an: null, stream: null, time: null, frames: [], hitAt: -1e9, prevHitAt: -1e9, lastC: null, lastNotes: [], attackAt: -1e9, floor: 0.01, quiet: 0,
+    cand: null, candN: 0, lastWrong: null, wrongAt: -1e9, nextAt: 0, d: new Float32Array(2049), sr: 48000 };
+
+  const spectrum = (() => {
+    const N = FFT_N, re = new Float32Array(N), im = new Float32Array(N), win = new Float32Array(N), rev = new Uint16Array(N);
+    const cos = new Float32Array(N / 2), sin = new Float32Array(N / 2);
+    const bits = Math.log2(N);
+    for (let i = 0; i < N; i++) {
+      win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+      let r = 0; for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+      rev[i] = r;
+    }
+    for (let i = 0; i < N / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / N); sin[i] = -Math.sin(2 * Math.PI * i / N); }
+    return function (time, sr) {
+      for (let i = 0; i < N; i++) { re[rev[i]] = time[i] * win[i]; im[rev[i]] = 0; }
+      for (let size = 2; size <= N; size <<= 1) {
+        const half = size >> 1, stride = N / size;
+        for (let start = 0; start < N; start += size) {
+          for (let k = 0, t = 0; k < half; k++, t += stride) {
+            const a = start + k, b = a + half;
+            const xr = re[b] * cos[t] - im[b] * sin[t], xi = re[b] * sin[t] + im[b] * cos[t];
+            re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+          }
+        }
+      }
+      const K = Math.min(N / 2, Math.ceil(8000 * N / sr)), mag = new Float32Array(K);
+      let max = 0;
+      for (let k = 1; k < K; k++) { const v = Math.hypot(re[k], im[k]); mag[k] = v; if (v > max) max = v; }
+      return { mag, max };
+    };
+  })();
+
+  // How strongly note m shows up in a spectrum. `ok` means its own harmonics stand out as clear peaks.
+  function noteInfo(fr, m) {
+    const mag = fr.mag, f0 = 440 * Math.pow(2, (m - 69) / 12), perHz = FFT_N / mic.sr;
+    const pk = f => { const i = Math.round(f * perHz); return Math.max(mag[i - 1] || 0, mag[i] || 0, mag[i + 1] || 0); };
+    const at = f => mag[Math.round(f * perHz)] || 0;
+    let e = 0, peaks = 0, used = 0, first = null;
+    const hs = [];
+    for (let h = 1; h <= 5; h++) {
+      const f = h * f0;
+      if (f * perHz >= mag.length - 3) break;
+      if (f * 0.0293 * perHz < 2) continue; // too low to separate from neighbouring keys; rely on higher harmonics
+      const p = pk(f);
+      // A real note is a sharp peak with a dip a quarter-tone either side, even if the next key is still ringing.
+      const isPeak = p > 2 * Math.max(at(f * 0.9715), at(f * 1.0293)) && p > 0.06 * fr.max;
+      if (first === null) first = isPeak;
+      if (isPeak) peaks++;
+      e += p; used++;
+      hs.push({ h, f, p, peak: isPeak });
+    }
+    let ok = first === true && peaks >= Math.min(2, used);
+    // Strict octave: reject if this is really the same note an octave lower (which adds a peak at 1.5x).
+    if (ok && !opts.octave && pk(1.5 * f0) > 0.4 * pk(f0)) ok = false;
+    return { e, ok, hs };
+  }
+
+  // Loudness of note m in a short (85 ms) slice of sound: quick enough to catch a key being struck again.
+  const shortWin = new Float32Array(4096).map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / 4095));
+  function shortEnergy(buf, m) {
+    const f0 = 440 * Math.pow(2, (m - 69) / 12);
+    let sum = 0;
+    for (let h = 1; h <= 3; h++) {
+      const w = 2 * Math.PI * h * f0 / mic.sr;
+      if (w > 2) break;
+      const k = 2 * Math.cos(w);
+      let s1 = 0, s2 = 0;
+      for (let i = 0; i < 4096; i++) { const s0 = buf[i] * shortWin[i] + k * s1 - s2; s2 = s1; s1 = s0; }
+      sum += Math.sqrt(Math.max(0, s1 * s1 + s2 * s2 - k * s1 * s2));
+    }
+    return sum;
+  }
 
   function yin(buf, sr) {
     const W = buf.length >> 1, tMin = Math.floor(sr / 2000), tMax = Math.min(W - 1, Math.floor(sr / 60));
@@ -232,10 +352,10 @@
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('unsupported');
       const a = audio();
       mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      mic.an = a.createAnalyser(); mic.an.fftSize = 4096;
+      mic.an = a.createAnalyser(); mic.an.fftSize = FFT_N;
       a.createMediaStreamSource(mic.stream).connect(mic.an);
-      mic.buf = new Float32Array(4096); mic.d = new Float32Array(2049);
-      mic.on = true; mic.last = null; mic.armed = true;
+      mic.time = new Float32Array(FFT_N); mic.sr = a.sampleRate;
+      mic.frames = []; mic.floor = 0.01; mic.lastC = null; mic.hitAt = mic.prevHitAt = -1e9; mic.on = true;
       $('micBtn').classList.add('on'); $('micBtn').textContent = 'Microphone on';
       $('micInfo').textContent = 'Listening for your piano';
       $('micLevel').hidden = false;
@@ -248,34 +368,91 @@
 
   function micTick(now) {
     if (!mic.on || now < mic.nextAt) return;
-    mic.nextAt = now + 45;
-    mic.an.getFloatTimeDomainData(mic.buf);
+    mic.nextAt = now + 50;
+    mic.an.getFloatTimeDomainData(mic.time);
+    micProcess(mic.time, now);
+  }
+
+  // time: the most recent FFT_N samples.
+  function micProcess(time, now) {
     let e = 0;
-    for (let i = 0; i < mic.buf.length; i += 2) e += mic.buf[i] * mic.buf[i];
-    const rms = Math.sqrt(e / (mic.buf.length / 2));
-    $('micLevel').firstElementChild.style.width = Math.min(100, Math.round(rms * 500)) + '%';
-    if (now < S.muteMicUntil) { mic.cand = null; mic.prevRms = rms; return; }
-    if (rms < 0.012) {
-      if (++mic.quiet > 3) { mic.last = null; mic.armed = true; }
-      mic.cand = null; mic.prevRms = rms;
-      if (mic.quiet === 12) $('micInfo').textContent = 'Listening for your piano';
+    for (let i = FFT_N - 4096; i < FFT_N; i += 2) e += time[i] * time[i];
+    const rms = Math.sqrt(e / 2048);
+    // The quiet level of the room is tracked, so "sound" always means "clearly louder than the room".
+    mic.floor = Math.min(mic.floor * 1.003 + 1e-7, Math.max(rms, 1e-5));
+    const gate = Math.max(0.0006, mic.floor * 3);
+    $('micLevel').firstElementChild.style.width = Math.round(100 * Math.max(0, Math.min(1, Math.log10(rms / gate) / 1.7))) + '%';
+    const fr = spectrum(time, mic.sr); fr.t = now;
+    mic.frames.push(fr); if (mic.frames.length > 14) mic.frames.shift();
+    fr.rms = rms; fr.short = time.slice(FFT_N - 4096);
+    const recent = mic.frames.slice(-4, -1);
+    if (recent.length && rms > 1.25 * Math.min(...recent.map(f => f.rms))) mic.attackAt = now; // a key was just struck
+    if (now < S.muteMicUntil || S.mode !== 'learn' || S.finished) { mic.cand = null; return; }
+    if (rms < gate) {
+      if (++mic.quiet === 3) released();
+      mic.cand = null;
       return;
     }
     mic.quiet = 0;
-    if (rms > mic.prevRms * 1.5 && rms > 0.02) mic.armed = true; // a fresh attack lets the same note count again
-    mic.prevRms = mic.prevRms * 0.5 + rms * 0.5;
-    const f = yin(mic.buf, ac.sampleRate);
+    if (tooEarly()) { mic.cand = null; return; }
+
+    // 1. Is the note we are waiting for newly sounding?
+    const want = S.steps[S.idx].notes.filter(n => !S.hit.has(n.m));
+    let targetHeard = false;
+    for (const n of want) {
+      for (const c of (opts.octave ? [n.m, n.m - 12, n.m + 12, n.m - 24, n.m + 24] : [n.m])) {
+        const info = noteInfo(fr, c);
+        if (!info.ok) continue;
+        targetHeard = true;
+        // The notes just played keep "growing" in the analysis for about half a second, and they contain
+        // the frequencies of other notes too (octaves, fifths). So right after a note, a new note only
+        // counts if frequencies of its own, ones the previous notes do not have, have appeared.
+        const settled = mic.lastC == null || now - mic.hitAt >= 450;
+        const from = Math.max(mic.prevHitAt, settled ? mic.hitAt : -1e9) + 240; // earlier notes must have stopped growing
+        const base = mic.frames.filter(f => f !== fr && f.t > from).slice(-10).map(f => noteInfo(f, c));
+        let risen = 0, own = 0;
+        if (base.length) info.hs.forEach((h, i) => {
+          if (!h.peak || h.p <= 1.35 * Math.min(...base.map(b => b.hs[i].p))) return;
+          risen++;
+          const explained = !settled && mic.lastNotes.some(L => {
+            const fL = 440 * Math.pow(2, (L - 69) / 12), k = Math.max(1, Math.round(h.f / fL));
+            return Math.abs(h.f / (k * fL) - 1) < 0.025;
+          });
+          if (!explained) own++;
+        });
+        const rose = own >= 1 && risen >= Math.min(2, info.hs.length);
+        // The same key struck again: this note suddenly louder in the last fraction of a second.
+        const again = mic.frames.filter(f => f !== fr && f.t > mic.hitAt).slice(-3);
+        const restruck = c === mic.lastC && now - mic.hitAt >= 200 && again.length > 0 &&
+          shortEnergy(fr.short, c) > 1.4 * Math.min(...again.map(f => shortEnergy(f.short, c)));
+        if (rose || restruck) {
+          mic.prevHitAt = mic.hitAt; mic.hitAt = now; mic.lastC = c; mic.cand = null;
+          mic.lastNotes = S.steps[S.idx].notes.map(x => x.m).concat(c);
+          $('micInfo').textContent = 'Heard ' + noteName(n.m);
+          noteInput(n.m, 'mic');
+          return;
+        }
+      }
+    }
+    if (targetHeard) { mic.cand = null; return; }
+
+    // 2. Otherwise, is one clear wrong note being struck?
+    const f = yin(time.subarray(FFT_N - 4096), mic.sr);
     if (!f) { mic.cand = null; return; }
     const m = Math.round(69 + 12 * Math.log2(f / 440));
     if (m === mic.cand) mic.candN++; else { mic.cand = m; mic.candN = 1; }
-    // A right note counts quickly; a wrong one has to hold steady longer, so stray sounds are not marked as mistakes.
-    const learning = S.mode === 'learn' && !S.finished;
-    const need = learning && !findMatch(m, 'mic') ? 4 : 2;
-    if (mic.candN >= need && (m !== mic.last || mic.armed)) {
-      mic.last = m; mic.armed = false;
-      $('micInfo').textContent = 'Heard ' + noteName(m);
-      noteInput(m, 'mic');
-    }
+    if (mic.candN < 4) return;
+    const related = want.some(n => [0, 5, 7].includes((((m - n.m) % 12) + 12) % 12)); // octaves and fifths confuse pitch trackers
+    const info = noteInfo(fr, m), before = mic.frames.slice(-9, -1);
+    const distinct = info.hs.some(h => h.h % 2 === 1 && h.peak); // odd harmonics rule out "really the octave above"
+    if (related || !info.ok || !distinct || !before.length) return;
+    const fresh = info.e > 1.35 * Math.min(...before.map(f => noteInfo(f, m).e)); // newly struck, not left ringing
+    const justPlayed = now - mic.hitAt < 700 && mic.lastNotes.some(L => (m - L) % 12 === 0);
+    const sameAgain = m === mic.lastWrong && now - mic.wrongAt < 700;
+    if (!fresh || justPlayed || sameAgain) return;
+    mic.lastWrong = m; mic.wrongAt = now; mic.candN = 0;
+    $('micInfo').textContent = 'Heard ' + noteName(m);
+    noteInput(m, 'mic');
   }
 
   // ---------- MIDI keyboard (browsers that support Web MIDI) ----------
@@ -283,7 +460,7 @@
     navigator.requestMIDIAccess().then(acc => {
       const hook = () => {
         let n = 0;
-        acc.inputs.forEach(inp => { n++; inp.onmidimessage = ev => { const [s, note, vel] = ev.data; if ((s & 0xf0) === 0x90 && vel > 0) noteInput(note, 'midi'); }; });
+        acc.inputs.forEach(inp => { n++; inp.onmidimessage = ev => { const [s, note, vel] = ev.data; if ((s & 0xf0) === 0x90 && vel > 0) noteInput(note, 'midi'); else if ((s & 0xf0) === 0x80 || (s & 0xf0) === 0x90) released(); }; });
         if (n && !mic.on) $('micInfo').textContent = 'MIDI keyboard connected';
       };
       hook(); acc.onstatechange = hook;
@@ -358,7 +535,7 @@
     // keyboard
     ctx.fillStyle = COL.bg; ctx.fillRect(0, hitY, W, H - hitY);
     const targets = new Map();
-    if (S.mode === 'learn' && !S.finished) step.notes.forEach(n => { if (!S.hit.has(n.m)) targets.set(n.m, n.h); });
+    if (S.mode === 'learn' && !S.finished && !tooEarly()) step.notes.forEach(n => { if (!S.hit.has(n.m)) targets.set(n.m, n.h); });
     const fillFor = k => {
       const f = S.flashes.get(k.m);
       if (f) { if (f.until > now) return COL[f.kind]; S.flashes.delete(k.m); }
@@ -382,7 +559,8 @@
   }
 
   let lastT = 0;
-  function frame(now) {
+  function frame() {
+    const now = clock();
     const dt = Math.min(0.1, (now - lastT) / 1000 || 0); lastT = now;
     if (S.song) {
       if (S.mode === 'listen') {
@@ -403,7 +581,7 @@
           }
           if (moved) updateUI();
         }
-      } else {
+      } else if (!tickHold(now)) {
         const target = S.steps[S.idx].t;
         S.view += (target - S.view) * Math.min(1, dt * 10);
       }
@@ -429,11 +607,10 @@
     $('playBtn').hidden = S.mode !== 'listen'; $('playBtn').textContent = S.playing ? 'Pause' : 'Play';
     $('playBtn').classList.toggle('primary', !S.playing);
     $('hearBtn').hidden = S.mode !== 'learn';
-    $('speed').hidden = S.mode !== 'listen';
   }
 
   function setMode(mode) {
-    S.mode = mode; S.playing = false; S.finished = false; S.hit.clear();
+    S.mode = mode; S.playing = false; S.finished = false; S.hit.clear(); endHold();
     if (mode === 'listen') { S.view = S.steps[S.idx].t - 1; seekListen(); }
     prompt(); updateUI();
   }
@@ -458,17 +635,17 @@
     buildSteps(); setRange();
     S.loopA = S.loopB = null;
     S.idx = Math.max(0, S.steps.findIndex(s => s.t >= t - 1e-6));
-    S.hit.clear(); S.misses = []; S.finished = false;
+    S.hit.clear(); S.misses = []; S.finished = false; endHold();
     prompt(); updateUI();
   };
   $('speed').onchange = e => { S.tempo = +e.target.value; };
   $('scrub').oninput = e => {
-    S.idx = +e.target.value; S.hit.clear(); S.finished = false;
+    S.idx = +e.target.value; S.hit.clear(); S.finished = false; endHold();
     if (S.mode === 'listen') { S.view = S.steps[S.idx].t - 0.001; seekListen(); }
     prompt(); updateUI();
   };
   $('loopA').onclick = () => { S.loopA = S.idx; if (S.loopB != null && S.loopB < S.loopA) S.loopB = null; updateUI(); };
-  $('loopB').onclick = () => { S.loopB = S.idx; if (S.loopA == null || S.loopA > S.loopB) S.loopA = 0; S.idx = S.loopA; S.hit.clear(); if (S.mode === 'listen') { S.view = S.steps[S.idx].t - 1; seekListen(); } prompt(); updateUI(); };
+  $('loopB').onclick = () => { S.loopB = S.idx; if (S.loopA == null || S.loopA > S.loopB) S.loopA = 0; S.idx = S.loopA; S.hit.clear(); endHold(); if (S.mode === 'listen') { S.view = S.steps[S.idx].t - 1; seekListen(); } prompt(); updateUI(); };
   $('loopClear').onclick = () => { S.loopA = S.loopB = null; updateUI(); };
 
   cv.addEventListener('pointerdown', ev => {
@@ -481,6 +658,7 @@
     tone(k.m, 0.5);
     if (S.mode === 'learn' && !S.finished) noteInput(k.m, 'tap'); else flash(k.m, 'R');
   });
+  cv.addEventListener('pointerup', released);
 
   // ---------- Song sheet ----------
   function renderList() {
@@ -558,5 +736,5 @@
   resize();
   selectSong(store.get('pm.last', builtins[0].id));
   requestAnimationFrame(frame);
-  window.__pm = { S, noteInput, yin, mic }; // handy for debugging from the console
+  window.__pm = { S, noteInput, mic, micProcess, tickHold, setClock(f) { clock = f; } }; // handy for debugging from the console
 })();
