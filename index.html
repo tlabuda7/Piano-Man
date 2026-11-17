@@ -57,6 +57,8 @@
   select { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; min-height: 40px; }
   #scrub { flex: 1; min-width: 80px; accent-color: var(--right); }
   #loopInfo, #micInfo { color: var(--dim); font-size: 13px; }
+  #micLevel { width: 56px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; display: inline-block; }
+  #micLevel i { display: block; height: 100%; width: 0; background: var(--ok); }
   #stageWrap { flex: 1; min-height: 0; margin-top: 8px; margin-bottom: env(safe-area-inset-bottom, 0px); position: relative; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
   /* Song library sheet */
@@ -105,6 +107,7 @@
       <option value="0.75">75% speed</option>
       <option value="1" selected>100% speed</option>
     </select>
+    <span id="micLevel" hidden title="Microphone level"><i></i></span>
     <span id="micInfo"></span>
   </div>
   <div class="bar">

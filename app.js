@@ -101,12 +101,17 @@
   }
 
   // ---------- Learn mode ----------
+  function findMatch(m, src) {
+    const want = S.steps[S.idx].notes.filter(n => !S.hit.has(n.m));
+    const lenient = src === 'mic' && opts.octave;
+    return want.find(n => n.m === m) || (lenient && want.find(n => (n.m - m) % 12 === 0)) || null;
+  }
+
   function noteInput(m, src) {
     if (S.mode !== 'learn' || S.finished) return;
     const step = S.steps[S.idx];
     const want = step.notes.filter(n => !S.hit.has(n.m));
-    const lenient = src === 'mic' && opts.octave;
-    const match = want.find(n => n.m === m) || (lenient && want.find(n => (n.m - m) % 12 === 0));
+    const match = findMatch(m, src);
     if (match) {
       S.hit.add(match.m);
       flash(match.m, 'ok');
@@ -116,7 +121,9 @@
     if (step.notes.some(n => n.m === m)) return; // already-held chord note
     S.misses[S.idx] = (S.misses[S.idx] || 0) + 1;
     flash(m, 'bad');
-    coach('bad', stepNames(step), `<b>Try again.</b> That was ${noteName(m)}. Play <b>${want.map(n => noteName(n.m)).join(' + ')}</b>.`);
+    const hint = S.misses[S.idx] % 3 === 0;
+    coach('bad', stepNames(step), `<b>Try again.</b> That was ${noteName(m)}. Play <b>${want.map(n => noteName(n.m)).join(' + ')}</b>.` + (hint ? ' Listen, this is how it sounds.' : ''));
+    if (hint) setTimeout(() => want.forEach(n => tone(n.m, 0.9)), src === 'tap' ? 500 : 150);
   }
 
   function advance() {
@@ -201,7 +208,7 @@
   async function toggleMic() {
     if (mic.on) {
       mic.stream.getTracks().forEach(t => t.stop());
-      mic.on = false; $('micBtn').classList.remove('on'); $('micBtn').textContent = 'Use microphone'; $('micInfo').textContent = '';
+      mic.on = false; $('micBtn').classList.remove('on'); $('micBtn').textContent = 'Use microphone'; $('micInfo').textContent = ''; $('micLevel').hidden = true;
       return;
     }
     try {
@@ -214,6 +221,7 @@
       mic.on = true; mic.last = null; mic.armed = true;
       $('micBtn').classList.add('on'); $('micBtn').textContent = 'Microphone on';
       $('micInfo').textContent = 'Listening for your piano';
+      $('micLevel').hidden = false;
     } catch (e) {
       $('micInfo').textContent = e.message === 'unsupported'
         ? 'This browser cannot use the microphone here. Open the app over https in Safari.'
@@ -228,10 +236,13 @@
     let e = 0;
     for (let i = 0; i < mic.buf.length; i += 2) e += mic.buf[i] * mic.buf[i];
     const rms = Math.sqrt(e / (mic.buf.length / 2));
+    $('micLevel').firstElementChild.style.width = Math.min(100, Math.round(rms * 500)) + '%';
     if (now < S.muteMicUntil) { mic.cand = null; mic.prevRms = rms; return; }
     if (rms < 0.012) {
       if (++mic.quiet > 3) { mic.last = null; mic.armed = true; }
-      mic.cand = null; mic.prevRms = rms; return;
+      mic.cand = null; mic.prevRms = rms;
+      if (mic.quiet === 12) $('micInfo').textContent = 'Listening for your piano';
+      return;
     }
     mic.quiet = 0;
     if (rms > mic.prevRms * 1.5 && rms > 0.02) mic.armed = true; // a fresh attack lets the same note count again
@@ -240,7 +251,10 @@
     if (!f) { mic.cand = null; return; }
     const m = Math.round(69 + 12 * Math.log2(f / 440));
     if (m === mic.cand) mic.candN++; else { mic.cand = m; mic.candN = 1; }
-    if (mic.candN >= 2 && (m !== mic.last || mic.armed)) {
+    // A right note counts quickly; a wrong one has to hold steady longer, so stray sounds are not marked as mistakes.
+    const learning = S.mode === 'learn' && !S.finished;
+    const need = learning && !findMatch(m, 'mic') ? 4 : 2;
+    if (mic.candN >= need && (m !== mic.last || mic.armed)) {
       mic.last = m; mic.armed = false;
       $('micInfo').textContent = 'Heard ' + noteName(m);
       noteInput(m, 'mic');
@@ -312,13 +326,14 @@
       if (yb < 0 || yt > hitY) continue;
       const k = keyOf(n.m); if (!k) continue;
       const active = S.hands === 'B' || n.h === S.hands || !s.notes.some(x => x.h === S.hands);
-      const w = Math.max(k.w - 3, 10), x = k.x + k.w / 2 - w / 2;
+      const w = Math.max(k.w - 3, k.black ? 15 : 10), x = k.x + k.w / 2 - w / 2;
       ctx.globalAlpha = active ? 1 : 0.3;
       ctx.fillStyle = COL[n.h];
       rr(x, yt, w, h, 5); ctx.fill();
       if (opts.names && w >= 13) {
-        ctx.fillStyle = '#1a1405'; ctx.font = '600 ' + Math.min(12, w * 0.62) + 'px sans-serif';
-        ctx.fillText(NAMES[n.m % 12], x + w / 2, yb - 9);
+        const label = NAMES[n.m % 12].replace('#', '\u266f');
+        ctx.fillStyle = '#1a1405'; ctx.font = '600 ' + Math.min(12, w * (label.length > 1 ? 0.55 : 0.62)) + 'px sans-serif';
+        ctx.fillText(label, x + w / 2, yb - 9);
       }
       ctx.globalAlpha = 1;
     }
@@ -505,6 +520,16 @@
   $('optNames').checked = opts.names; $('optOctave').checked = opts.octave;
   $('optNames').onchange = e => { opts.names = e.target.checked; store.set('pm.opts', opts); };
   $('optOctave').onchange = e => { opts.octave = e.target.checked; store.set('pm.opts', opts); };
+
+  // ---------- Keep the screen awake while practising ----------
+  let wake = null;
+  async function keepAwake() {
+    if (wake || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    try { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); }
+    catch (e) { /* not allowed right now; try again on the next touch */ }
+  }
+  document.addEventListener('pointerdown', keepAwake);
+  document.addEventListener('visibilitychange', keepAwake);
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
