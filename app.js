@@ -249,7 +249,7 @@
   // Wrong notes: a separate pitch tracker (YIN) has to hear one clear, steady, different note.
   const FFT_N = 16384;
   const mic = { on: false, an: null, stream: null, time: null, frames: [], hitAt: -1e9, prevHitAt: -1e9, lastC: null, lastNotes: [], attackAt: -1e9, floor: 0.01, quiet: 0,
-    cand: null, candN: 0, lastWrong: null, wrongAt: -1e9, nextAt: 0, d: new Float32Array(2049), sr: 48000 };
+    cand: null, candN: 0, lastWrong: null, wrongAt: -1e9, nextAt: 0, tune: 0, hits: 0, log: [], d: new Float32Array(2049), sr: 48000 };
 
   const spectrum = (() => {
     const N = FFT_N, re = new Float32Array(N), im = new Float32Array(N), win = new Float32Array(N), rev = new Uint16Array(N);
@@ -281,41 +281,54 @@
   })();
 
   // How strongly note m shows up in a spectrum. `ok` means its own harmonics stand out as clear peaks.
+  // Real pianos are rarely exactly in tune, and a string's higher harmonics run sharp. So each harmonic is
+  // looked for in a window around where it should be (40 cents either side, more above for high harmonics),
+  // centred on this piano's overall tuning, which the app learns as you play (mic.tune, in cents).
+  const noteFreq = m => 440 * Math.pow(2, (m - 69 + mic.tune / 100) / 12);
+  function findPeak(mag, f, h) {
+    const perHz = FFT_N / mic.sr, c0 = Math.round(f * perHz);
+    const lo = Math.min(c0 - 1, Math.floor(f * 0.9772 * perHz)), hi = Math.max(c0 + 1, Math.ceil(f * Math.pow(2, (40 + Math.min(50, 2.5 * h * h)) / 1200) * perHz));
+    let p = 0, at = c0;
+    for (let i = Math.max(1, lo); i <= hi && i < mag.length - 1; i++) {
+      const v = mag[i];
+      if (v > p && v >= mag[i - 1] && v >= mag[i + 1]) { p = v; at = i; } // a true local peak, not the skirt of a neighbour
+    }
+    return { p, at };
+  }
   function noteInfo(fr, m) {
-    const mag = fr.mag, f0 = 440 * Math.pow(2, (m - 69) / 12), perHz = FFT_N / mic.sr;
-    const pk = f => { const i = Math.round(f * perHz); return Math.max(mag[i - 1] || 0, mag[i] || 0, mag[i + 1] || 0); };
+    const mag = fr.mag, f0 = noteFreq(m), perHz = FFT_N / mic.sr;
     let e = 0, peaks = 0, used = 0, first = null;
     const hs = [];
     for (let h = 1; h <= 5; h++) {
       const f = h * f0;
-      if (f * perHz >= mag.length - 3) break;
+      if (f * 1.06 * perHz >= mag.length - 3) break;
       if (f * 0.0293 * perHz < 2) continue; // too low to separate from neighbouring keys; rely on higher harmonics
-      const p = pk(f);
+      const { p, at } = findPeak(mag, f, h);
       // A real note is a sharp peak that towers over the typical level within a semitone either side.
       // (The median ignores a neighbouring key that is still ringing; plain noise almost never passes.)
-      const c0 = Math.round(f * perHz), span = Math.max(4, Math.round(f * 0.0595 * perHz)), around = [];
-      for (let i = c0 - span; i <= c0 + span; i++) if (Math.abs(i - c0) > 2) around.push(mag[i] || 0);
+      const span = Math.max(4, Math.round(f * 0.0595 * perHz)), around = [];
+      for (let i = at - span; i <= at + span; i++) if (Math.abs(i - at) > 2) around.push(mag[i] || 0);
       around.sort();
       const isPeak = p > 3 * around[around.length >> 1] && p > 0.06 * fr.max;
       if (first === null) first = isPeak;
       if (isPeak) peaks++;
       e += p; used++;
-      hs.push({ h, f, p, peak: isPeak });
+      hs.push({ h, f, p, at, peak: isPeak });
     }
     let ok = first === true && peaks >= Math.min(2, used);
     // Strict octave: reject if this is really the same note an octave lower (which adds a peak at 1.5x).
-    if (ok && !opts.octave && pk(1.5 * f0) > 0.4 * pk(f0)) ok = false;
+    if (ok && !opts.octave && findPeak(mag, 1.5 * f0, 1).p > 0.4 * findPeak(mag, f0, 1).p) ok = false;
     return { e, ok, hs };
   }
 
   // How much of the sound that just appeared belongs to note m (0 to 1). A creak, a cough or a knock
   // spreads its energy everywhere; a piano note puts it on that note's own harmonics.
   function noteBins(m) {
-    const f0 = 440 * Math.pow(2, (m - 69) / 12), perHz = FFT_N / mic.sr, bins = [];
+    const f0 = noteFreq(m), perHz = FFT_N / mic.sr, bins = [];
     let last = -1;
     for (let h = 1; h <= 12 && h * f0 < 5000; h++) {
-      const c0 = Math.round(h * f0 * perHz), tol = 2 + Math.round(h * f0 * perHz * 0.012); // strings run slightly sharp higher up
-      for (let i = Math.max(last + 1, c0 - tol); i <= c0 + tol; i++) { bins.push(i); last = i; }
+      const lo = Math.floor(h * f0 * 0.9772 * perHz) - 1, hi = Math.ceil(h * f0 * Math.pow(2, (40 + Math.min(50, 2.5 * h * h)) / 1200) * perHz) + 1;
+      for (let i = Math.max(last + 1, lo); i <= hi; i++) { bins.push(i); last = i; }
     }
     return bins;
   }
@@ -338,7 +351,7 @@
   // Loudness of note m in a short (85 ms) slice of sound: quick enough to catch a key being struck again.
   const shortWin = new Float32Array(4096).map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / 4095));
   function shortEnergy(buf, m) {
-    const f0 = 440 * Math.pow(2, (m - 69) / 12);
+    const f0 = noteFreq(m);
     let sum = 0;
     for (let h = 1; h <= 3; h++) {
       const w = 2 * Math.PI * h * f0 / mic.sr;
@@ -404,6 +417,30 @@
     micProcess(mic.time, now);
   }
 
+  // --- Listening report: what the microphone actually picked up over the last few seconds, as text.
+  function binFreq(mag, i) { // exact frequency of a peak, between analysis bins
+    const a = mag[i - 1] || 0, b = mag[i] || 0, c = mag[i + 1] || 0, den = a - 2 * b + c;
+    return (i + (den ? 0.5 * (a - c) / den : 0)) * mic.sr / FFT_N;
+  }
+  function topPeaks(fr, count) {
+    const mag = fr.mag, perHz = FFT_N / mic.sr, found = [];
+    for (let i = Math.round(60 * perHz); i < Math.min(mag.length - 1, Math.round(4200 * perHz)); i++) {
+      if (mag[i] > 0.05 * fr.max && mag[i] > mag[i - 1] && mag[i] >= mag[i + 1]) found.push(i);
+    }
+    return found.sort((a, b) => mag[b] - mag[a]).slice(0, count).map(i => {
+      const f = binFreq(mag, i), exact = 69 + 12 * Math.log2(f / 440), m = Math.round(exact), cents = Math.round((exact - m) * 100);
+      return { f, rel: Math.round(100 * mag[i] / fr.max), label: `${noteName(m)}${cents ? (cents > 0 ? ', ' + cents + ' cents sharp' : ', ' + -cents + ' cents flat') : ''}`, short: `${f.toFixed(1)}(${noteName(m)}${cents >= 0 ? '+' : ''}${cents})${Math.round(100 * mag[i] / fr.max)}` };
+    });
+  }
+  function listeningReport() {
+    const track = mic.stream && mic.stream.getAudioTracks()[0], set = track && track.getSettings ? track.getSettings() : {};
+    const head = `Piano Man listening report v4 | rate ${mic.sr} | tuning ${Math.round(mic.tune)}c after ${mic.hits} notes | room ${mic.floor.toExponential(1)} | any-octave ${opts.octave} | hands ${S.hands} | phone filters: echo ${set.echoCancellation} noise ${set.noiseSuppression} gain ${set.autoGainControl}`;
+    const t0 = mic.log.length ? mic.log[0].t : 0;
+    const lines = mic.log.map(d => `${((d.t - t0) / 1000).toFixed(2)} ${d.lvl.toFixed(0)}dB ${d.out || '-'}` +
+      (d.want ? ` want ${d.want} | ${d.note || ''} | ${d.why || ''}${d.yin ? ' | yin ' + d.yin : ''} | ${topPeaks(d.fr, 6).map(p => p.short).join(' ')}` : ''));
+    return head + '\n' + lines.join('\n');
+  }
+
   // time: the most recent FFT_N samples.
   function micProcess(time, now) {
     let e = 0;
@@ -418,14 +455,21 @@
     fr.rms = rms; fr.short = time.slice(FFT_N - 4096);
     const recent = mic.frames.slice(-4, -1);
     if (recent.length && rms > 1.25 * Math.min(...recent.map(f => f.rms))) mic.attackAt = now; // a key was just struck
-    if (now < S.muteMicUntil || S.mode !== 'learn' || S.finished) { mic.cand = null; return; }
+    const dbg = { t: now, lvl: 20 * Math.log10(rms / gate), fr };
+    mic.log.push(dbg); if (mic.log.length > 90) mic.log.shift();
+    if (rms >= gate && !$('moreWrap').hidden) {
+      const top = topPeaks(fr, 1)[0];
+      if (top) $('micInfo').textContent = `Loudest pitch right now: ${top.label}. This piano's tuning so far: ${Math.round(mic.tune)} cents.`;
+    }
+    if (now < S.muteMicUntil || S.mode !== 'learn' || S.finished) { mic.cand = null; dbg.out = 'paused'; return; }
     if (rms < gate) {
       if (++mic.quiet === 3) released();
-      mic.cand = null;
+      mic.cand = null; dbg.out = 'quiet';
       return;
     }
     mic.quiet = 0;
-    if (tooEarly()) { mic.cand = null; return; }
+    dbg.want = S.steps[S.idx].notes.map(n => noteName(n.m)).join('+');
+    if (tooEarly()) { mic.cand = null; dbg.out = 'holding'; return; }
 
     // 1. Is the note we are waiting for newly sounding?
     const want = S.steps[S.idx].notes.filter(n => !S.hit.has(n.m));
@@ -433,6 +477,8 @@
     for (const n of want) {
       for (const c of (opts.octave ? [n.m, n.m - 12, n.m + 12, n.m - 24, n.m + 24] : [n.m])) {
         const info = noteInfo(fr, c);
+        const main = n === want[0] && c === n.m;
+        if (main) dbg.note = noteName(c) + ' ' + info.hs.map(h => 'h' + h.h + (h.peak ? 'P' : '-')).join('') + (info.ok ? ' ok' : ' no');
         if (!info.ok) continue;
         targetHeard = true;
         // The notes just played keep "growing" in the analysis for about half a second, and they contain
@@ -446,7 +492,7 @@
           if (!h.peak || h.p <= 1.35 * Math.min(...base.map(b => b.hs[i].p))) return;
           risen++;
           const explained = !settled && mic.lastNotes.some(L => {
-            const fL = 440 * Math.pow(2, (L - 69) / 12), k = Math.max(1, Math.round(h.f / fL));
+            const fL = noteFreq(L), k = Math.max(1, Math.round(h.f / fL));
             return Math.abs(h.f / (k * fL) - 1) < 0.025;
           });
           if (!explained) own++;
@@ -457,14 +503,21 @@
         const restruck = c === mic.lastC && now - mic.hitAt >= 200 && again.length > 0 &&
           shortEnergy(fr.short, c) > 1.4 * Math.min(...again.map(f => shortEnergy(f.short, c)));
         // Guard against noises: most of the new sound must be this note, and it must last two looks in a row.
-        const real = restruck || (rose && shareOfNewSound(fr, c) >= 0.3);
+        const share = rose ? shareOfNewSound(fr, c) : 0;
+        const real = restruck || (rose && share >= 0.3);
+        if (main || real) dbg.why = `${noteName(c)} risen${risen} own${own} share${share.toFixed(2)}${restruck ? ' restruck' : ''}${settled ? '' : ' unsettled'}`;
         const steady = real && mic.pend === c && mic.pendAt === mic.frames[mic.frames.length - 2].t;
-        if (real && !steady) { mic.pend = c; mic.pendAt = now; return; }
+        if (real && !steady) { mic.pend = c; mic.pendAt = now; dbg.out = 'pending'; return; }
         if (steady) {
           mic.pend = null;
           mic.prevHitAt = mic.hitAt; mic.hitAt = now; mic.lastC = c; mic.cand = null;
           mic.lastNotes = S.steps[S.idx].notes.map(x => x.m).concat(c);
-          $('micInfo').textContent = 'Heard ' + noteName(n.m);
+          const lead = info.hs.find(h => h.peak && h.h <= 2);
+          if (lead) { // learn how sharp or flat this piano is
+            const off = 1200 * Math.log2(binFreq(fr.mag, lead.at) / (lead.h * 440 * Math.pow(2, (c - 69) / 12)));
+            mic.tune = Math.max(-70, Math.min(70, mic.hits++ ? mic.tune * 0.75 + off * 0.25 : off));
+          }
+          dbg.out = 'HIT';
           noteInput(n.m, 'mic');
           return;
         }
@@ -475,8 +528,9 @@
     // 2. Otherwise, is one clear wrong note being struck?
     const f = yin(time.subarray(FFT_N - 4096), mic.sr);
     if (!f) { mic.cand = null; return; }
-    const m = Math.round(69 + 12 * Math.log2(f / 440));
+    const m = Math.round(69 + 12 * Math.log2(f / 440) - mic.tune / 100);
     if (m === mic.cand) mic.candN++; else { mic.cand = m; mic.candN = 1; }
+    dbg.yin = noteName(m) + 'x' + mic.candN;
     if (mic.candN < 4) return;
     const related = want.some(n => [0, 5, 7].includes((((m - n.m) % 12) + 12) % 12)); // octaves and fifths confuse pitch trackers
     const info = noteInfo(fr, m), before = mic.frames.slice(-9, -1);
@@ -487,7 +541,7 @@
     const sameAgain = m === mic.lastWrong && now - mic.wrongAt < 700;
     if (!fresh || justPlayed || sameAgain) return;
     mic.lastWrong = m; mic.wrongAt = now; mic.candN = 0;
-    $('micInfo').textContent = 'Heard ' + noteName(m);
+    dbg.out = 'WRONG ' + noteName(m);
     noteInput(m, 'mic');
   }
 
@@ -745,6 +799,15 @@
   }
 
   $('moreBtn').onclick = () => { $('moreWrap').hidden = false; };
+  $('reportBtn').onclick = () => {
+    const box = $('reportText');
+    box.value = mic.log.length ? listeningReport() : 'Turn the microphone on and play a few notes first.';
+    box.hidden = false;
+    if (!mic.log.length) return;
+    box.focus(); box.select();
+    const done = ok => { $('reportBtn').textContent = ok ? 'Copied. Paste it to Claude' : 'Select the text below and copy it'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(box.value).then(() => done(true), () => done(false)); else done(false);
+  };
   $('moreClose').onclick = () => { $('moreWrap').hidden = true; };
   $('moreWrap').onclick = e => { if (e.target === $('moreWrap')) $('moreWrap').hidden = true; };
   $('songBtn').onclick = () => { renderList(); $('importErr').textContent = ''; $('sheet').hidden = false; };
@@ -787,5 +850,5 @@
   resize();
   selectSong(store.get('pm.last', builtins[0].id));
   requestAnimationFrame(frame);
-  window.__pm = { S, noteInput, mic, micProcess, tickHold, setClock(f) { clock = f; } }; // handy for debugging from the console
+  window.__pm = { S, noteInput, mic, micProcess, tickHold, listeningReport, setClock(f) { clock = f; } }; // handy for debugging from the console
 })();

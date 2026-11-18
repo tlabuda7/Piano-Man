@@ -92,6 +92,7 @@
   .song { display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
   .song button.pick { flex: 1; text-align: left; background: none; padding: 14px 0; min-width: 0; border-radius: 8px; white-space: normal; font-weight: 600; }
   .song .meta { color: var(--dim); font-size: 13px; display: block; font-weight: 400; }
+  #reportText { background: var(--bg); min-height: 90px; font-size: 11px; }
   textarea { width: 100%; min-height: 120px; background: var(--panel); border: 0; border-radius: 14px; padding: 12px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; -webkit-user-select: text; user-select: text; }
   #importErr { color: var(--bad); }
 </style>
@@ -159,6 +160,9 @@
       <h3>Microphone</h3>
       <label class="chk"><input id="optOctave" type="checkbox" checked> Accept the right note in any octave</label>
       <p class="note" id="micInfo"></p>
+      <div class="row"><button id="reportBtn">Copy listening report</button></div>
+      <textarea id="reportText" readonly hidden aria-label="Listening report"></textarea>
+      <p class="note">If the app is not hearing your notes properly, play the notes it gets wrong, then press this within a few seconds and paste the result to Claude. It shows what the microphone picked up.</p>
       <p class="note">The microphone accepts any one note of a chord. A MIDI keyboard is used automatically in browsers that support it (not Safari on iPhone).</p>
     </div>
   </div>
