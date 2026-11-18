@@ -21,6 +21,7 @@
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
+  body { height: 100dvh; -webkit-touch-callout: none; }
   body {
     background: var(--bg); color: var(--fg); font: 15px/1.35 var(--ui);
     display: flex; flex-direction: column; overflow: hidden;
@@ -29,6 +30,7 @@
   }
   [hidden] { display: none !important; }
   button, select, input, textarea { font: inherit; color: inherit; }
+  select, textarea { font-size: 16px; } /* iPhone zooms the page when a smaller field is tapped */
   button {
     background: var(--panel); border: 0; border-radius: 999px;
     padding: 8px 14px; min-height: 38px; cursor: pointer; white-space: nowrap;
@@ -60,13 +62,23 @@
   #micLevel { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0, 0, 0, .25); }
   #micLevel i { display: block; height: 100%; width: 0; background: #1a1405; }
   #track { flex: 1; min-width: 60px; position: relative; display: flex; align-items: center; }
-  #scrub { width: 100%; accent-color: var(--right); margin: 0; }
-  #holdBar { position: absolute; left: 0; right: 0; bottom: -5px; height: 3px; border-radius: 2px; overflow: hidden; }
+  #scrub { width: 100%; height: 36px; accent-color: var(--right); margin: 0; }
+  #holdBar { position: absolute; left: 0; right: 0; bottom: 1px; height: 3px; border-radius: 2px; overflow: hidden; }
   #holdBar i { display: block; height: 100%; width: 0; background: var(--ok); }
   #pos { color: var(--dim); font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
 
   #stageWrap { flex: 1; min-height: 0; margin-bottom: env(safe-area-inset-bottom, 0px); position: relative; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+
+  /* Phone on its side: the three control rows become one and a half, leaving the height for the keys. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+    #top { padding-block: 4px 0; }
+    #coach { min-height: 44px; padding-block: 2px; }
+    #coachBig { font-size: 24px; }
+    #tools, #stageWrap { grid-column: 1 / -1; }
+    #tools { padding-block: 0 4px; }
+  }
 
   /* Options: a sheet that slides over the bottom half, so the notes stay in view. */
   #moreWrap { position: fixed; inset: 0; z-index: 4; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; }
@@ -92,8 +104,8 @@
   .song { display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
   .song button.pick { flex: 1; text-align: left; background: none; padding: 14px 0; min-width: 0; border-radius: 8px; white-space: normal; font-weight: 600; }
   .song .meta { color: var(--dim); font-size: 13px; display: block; font-weight: 400; }
-  #reportText { background: var(--bg); min-height: 90px; font-size: 11px; }
-  textarea { width: 100%; min-height: 120px; background: var(--panel); border: 0; border-radius: 14px; padding: 12px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; -webkit-user-select: text; user-select: text; }
+  #reportText { background: var(--bg); min-height: 90px; }
+  textarea { width: 100%; min-height: 120px; background: var(--panel); border: 0; border-radius: 14px; padding: 12px; font-family: ui-monospace, Menlo, monospace; font-size: 16px; -webkit-user-select: text; user-select: text; }
   #importErr { color: var(--bad); }
 </style>
 </head>

@@ -308,7 +308,7 @@
       // (The median ignores a neighbouring key that is still ringing; plain noise almost never passes.)
       const span = Math.max(4, Math.round(f * 0.0595 * perHz)), around = [];
       for (let i = at - span; i <= at + span; i++) if (Math.abs(i - at) > 2) around.push(mag[i] || 0);
-      around.sort();
+      around.sort((a, b) => a - b);
       const isPeak = p > 3 * around[around.length >> 1] && p > 0.06 * fr.max;
       if (first === null) first = isPeak;
       if (isPeak) peaks++;
@@ -384,24 +384,32 @@
     return 0;
   }
 
+  // iPhone: say what kind of sound the app makes, so "Hear it" and Listen still play with the silent switch on.
+  function audioMode(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* older iOS */ } }
+  audioMode('playback');
+
   async function toggleMic() {
     if (mic.on) {
       mic.stream.getTracks().forEach(t => t.stop());
+      audioMode('playback');
       mic.on = false; $('micBtn').classList.remove('on'); $('micLabel').textContent = 'Mic off'; $('micInfo').textContent = ''; $('micLevel').hidden = true;
       return;
     }
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('unsupported');
+      audioMode('play-and-record');
       const a = audio();
       mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       mic.an = a.createAnalyser(); mic.an.fftSize = FFT_N;
       a.createMediaStreamSource(mic.stream).connect(mic.an);
       mic.time = new Float32Array(FFT_N); mic.sr = a.sampleRate;
+      mic.stream.getAudioTracks()[0].addEventListener('ended', () => { if (mic.on) toggleMic(); }); // phone took the mic away
       mic.frames = []; mic.floor = 0.01; mic.lastC = null; mic.hitAt = mic.prevHitAt = -1e9; mic.on = true;
       $('micBtn').classList.add('on'); $('micLabel').textContent = 'Mic on';
       $('micInfo').textContent = 'Listening for your piano';
       $('micLevel').hidden = false;
     } catch (e) {
+      audioMode('playback');
       const why = e.message === 'unsupported'
         ? 'This browser cannot use the microphone here. Open the app over https in Safari.'
         : 'Microphone blocked. Allow it in your browser settings, then try again.';
@@ -841,6 +849,14 @@
   }
   document.addEventListener('pointerdown', keepAwake);
   document.addEventListener('visibilitychange', keepAwake);
+  // Coming back from another app or a locked screen: iPhone pauses sound and the microphone, so wake them up.
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || !ac) return;
+    try { if (ac.state !== 'running') await ac.resume(); } catch (e) { /* resumes on the next touch */ }
+    const track = mic.on && mic.stream.getAudioTracks()[0];
+    if (track && (track.readyState !== 'live' || track.muted)) { await toggleMic(); await toggleMic(); }
+    mic.frames = []; lastT = clock();
+  });
 
   // ---------- Offline copy ----------
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
