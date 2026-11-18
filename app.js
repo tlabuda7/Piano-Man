@@ -221,9 +221,16 @@
   }
 
   // ---------- Sound ----------
-  let ac = null;
+  let ac = null, out = null;
   function audio() {
-    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      // Everything goes through a limiter, so notes can be loud without crackling when several play at once.
+      const limiter = ac.createDynamicsCompressor();
+      limiter.threshold.value = -6; limiter.knee.value = 6; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.15;
+      out = ac.createGain(); out.gain.value = 2.4;
+      out.connect(limiter); limiter.connect(ac.destination);
+    }
     if (ac.state === 'suspended') ac.resume();
     return ac;
   }
@@ -231,10 +238,12 @@
     const a = audio(), t = a.currentTime, f = 440 * Math.pow(2, (m - 69) / 12);
     const g = a.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.28, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.6, t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.35);
-    g.connect(a.destination);
-    [[1, 'triangle', 1], [2, 'sine', 0.3]].forEach(([mult, type, vol]) => {
+    g.connect(out);
+    // Phone speakers cannot play deep bass, so low notes lean on their higher harmonics to stay audible.
+    const low = f < 220;
+    [[1, 'triangle', 1], [2, 'sine', low ? 0.8 : 0.4], [3, 'sine', low ? 0.6 : 0.2], [4, 'sine', low ? 0.4 : 0.1]].forEach(([mult, type, vol]) => {
       const o = a.createOscillator(), og = a.createGain();
       o.type = type; o.frequency.value = f * mult; og.gain.value = vol;
       o.connect(og); og.connect(g); o.start(t); o.stop(t + dur + 0.4);
@@ -721,6 +730,10 @@
 
   function setMode(mode) {
     S.mode = mode; S.playing = false; S.finished = false; S.hit.clear(); endHold();
+    // iPhones play sound quietly through the earpiece while the microphone is on,
+    // so the mic is switched off for Listen and back on when you return to Learn.
+    if (mode === 'listen' && mic.on) { mic.resume = true; toggleMic(); }
+    else if (mode === 'learn' && mic.resume) { mic.resume = false; if (!mic.on) toggleMic(); }
     if (mode === 'listen') { S.view = S.steps[S.idx].t - 1; seekListen(); }
     prompt(); updateUI();
   }
