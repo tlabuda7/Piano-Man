@@ -329,7 +329,7 @@
       const span = Math.max(4, Math.round(f * 0.0595 * perHz)), around = [];
       for (let i = at - span; i <= at + span; i++) if (Math.abs(i - at) > 2) around.push(mag[i] || 0);
       around.sort((a, b) => a - b);
-      const isPeak = p > 3 * around[around.length >> 1] && p > 0.06 * fr.max;
+      const isPeak = p > 4 * around[around.length >> 1] && p > 0.06 * fr.max;
       if (first === null) first = isPeak;
       if (isPeak) peaks++;
       e += p; used++;
@@ -343,29 +343,40 @@
 
   // How much of the sound that just appeared belongs to note m (0 to 1). A creak, a cough or a knock
   // spreads its energy everywhere; a piano note puts it on that note's own harmonics.
-  function noteBins(m) {
-    const f0 = noteFreq(m), perHz = FFT_N / mic.sr, bins = [];
-    let last = -1;
-    for (let h = 1; h <= 12 && h * f0 < 5000; h++) {
-      const lo = Math.floor(h * f0 * 0.9772 * perHz) - 1, hi = Math.ceil(h * f0 * Math.pow(2, (40 + Math.min(50, 2.5 * h * h)) / 1200) * perHz) + 1;
-      for (let i = Math.max(last + 1, lo); i <= hi; i++) { bins.push(i); last = i; }
+  // The few analysis bins that hold note m's harmonics in this frame: the actual peaks, not the whole
+  // window they were searched in. (A hiss has energy everywhere; only a real string piles it onto these.)
+  function noteBins(fr, m) {
+    const f0 = noteFreq(m), bins = [];
+    for (let h = 1; h <= (f0 < 150 ? 16 : 10) && h * f0 < 5000; h++) {
+      const { p, at } = findPeak(fr.mag, h * f0, h);
+      if (p > 0) for (let i = at - 2; i <= at + 2; i++) bins.push(i);
     }
     return bins;
   }
-  function shareOfNewSound(fr, m) { // m: one note, or several notes struck together
+  // Two questions about the sound that has just appeared (m: one note, or several notes struck together):
+  //  1. how much of it lies on those notes' harmonics, and
+  //  2. is it concentrated in a handful of sharp pitches at all? Water, fans, flushes, creaks and voices
+  //     smear across hundreds of pitches; piano notes do not.
+  // Returns the share (0 to 1), or 0 if the new sound is not concentrated enough to be notes.
+  function shareOfNewSound(fr, m) {
     const older = mic.frames.filter(f => f !== fr).slice(-8);
     if (!older.length) return 0;
-    const bins = [...new Set([].concat(m).flatMap(noteBins))].filter(i => i < fr.mag.length);
+    const notes = [].concat(m);
+    const bins = [...new Set(notes.flatMap(n => noteBins(fr, n)))].filter(i => i > 0 && i < fr.mag.length);
     const en = f => bins.reduce((t, i) => t + f.mag[i] * f.mag[i], 0);
     // Compare with the most recent moment before this note started.
     const low = Math.min(...older.map(en));
     let q = older[0];
     for (const f of older) if (en(f) <= 1.2 * low + 1e-12) q = f;
-    const grew = i => Math.max(0, fr.mag[i] * fr.mag[i] - q.mag[i] * q.mag[i]);
-    const perHz = FFT_N / mic.sr, hi = Math.min(fr.mag.length, Math.round(5000 * perHz));
+    const perHz = FFT_N / mic.sr, lo = Math.round(60 * perHz), hi = Math.min(fr.mag.length, Math.round(5000 * perHz));
+    const grew = new Float32Array(hi);
     let all = 0;
-    for (let i = Math.round(60 * perHz); i < hi; i++) all += grew(i);
-    return all > 0 ? bins.reduce((t, i) => t + grew(i), 0) / all : 0;
+    for (let i = lo; i < hi; i++) { grew[i] = Math.max(0, fr.mag[i] * fr.mag[i] - q.mag[i] * q.mag[i]); all += grew[i]; }
+    if (all <= 0) return 0;
+    const top = Array.from(grew).sort((a, b) => b - a).slice(0, 24 * notes.length).reduce((t, v) => t + v, 0);
+    fr.focus = top / all;
+    if (fr.focus < 0.4) return 0;
+    return bins.reduce((t, i) => t + (grew[i] || 0), 0) / all;
   }
 
   // Loudness of note m in a short (85 ms) slice of sound: quick enough to catch a key being struck again.
@@ -468,7 +479,7 @@
   }
   function listeningReport() {
     const track = mic.stream && mic.stream.getAudioTracks()[0], set = track && track.getSettings ? track.getSettings() : {};
-    const head = `Piano Man listening report v4 | rate ${mic.sr} | tuning ${Math.round(mic.tune)}c after ${mic.hits} notes | room ${mic.floor.toExponential(1)} | any-octave ${opts.octave} | hands ${S.hands} | phone filters: echo ${set.echoCancellation} noise ${set.noiseSuppression} gain ${set.autoGainControl}`;
+    const head = `Piano Man listening report v5 | rate ${mic.sr} | tuning ${Math.round(mic.tune)}c after ${mic.hits} notes | room ${mic.floor.toExponential(1)} | any-octave ${opts.octave} | hands ${S.hands} | phone filters: echo ${set.echoCancellation} noise ${set.noiseSuppression} gain ${set.autoGainControl}`;
     const t0 = mic.log.length ? mic.log[0].t : 0;
     const lines = mic.log.map(d => `${((d.t - t0) / 1000).toFixed(2)} ${d.lvl.toFixed(0)}dB ${d.out || '-'}` +
       (d.want ? ` want ${d.want} | ${d.note || ''} | ${d.why || ''}${d.yin ? ' | yin ' + d.yin : ''} | ${topPeaks(d.fr, 6).map(p => p.short).join(' ')}` : ''));
@@ -533,7 +544,7 @@
     if (share >= 0.3) heard.forEach(n => { if (!sure.includes(n)) pend[n.m] = now; });
     mic.pendChord = pend;
     dbg.note = 'chord ' + want.map(n => noteName(n.m)).join('+');
-    dbg.why = `heard ${heard.map(n => noteName(n.m)).join('+') || '-'} share${share.toFixed(2)} have ${S.hit.size}/${all.length}`;
+    dbg.why = `heard ${heard.map(n => noteName(n.m)).join('+') || '-'} share${share.toFixed(2)} focus${(fr.focus || 0).toFixed(2)} have ${S.hit.size}/${all.length}`;
     const idx0 = S.idx;
     for (const n of sure) {
       if (!mic.partialAt) mic.partialAt = now;
@@ -614,7 +625,7 @@
         // Guard against noises: most of the new sound must be this note, and it must last two looks in a row.
         const share = rose ? shareOfNewSound(fr, c) : 0;
         const real = restruck || (rose && share >= 0.3);
-        if (main || real) dbg.why = `${noteName(c)} risen${risen} own${own} share${share.toFixed(2)}${restruck ? ' restruck' : ''}${settled ? '' : ' unsettled'}`;
+        if (main || real) dbg.why = `${noteName(c)} risen${risen} own${own} share${share.toFixed(2)} focus${(fr.focus || 0).toFixed(2)}${restruck ? ' restruck' : ''}${settled ? '' : ' unsettled'}`;
         const steady = real && mic.pend === c && mic.pendAt === mic.frames[mic.frames.length - 2].t;
         if (real && !steady) { mic.pend = c; mic.pendAt = now; dbg.out = 'pending'; return; }
         if (steady) {
@@ -645,7 +656,7 @@
     const info = noteInfo(fr, m), before = mic.frames.slice(-9, -1);
     const distinct = info.hs.some(h => h.h % 2 === 1 && h.peak); // odd harmonics rule out "really the octave above"
     if (related || !info.ok || !distinct || !before.length) return;
-    const fresh = info.e > 1.35 * Math.min(...before.map(f => noteInfo(f, m).e)); // newly struck, not left ringing
+    const fresh = info.e > 1.35 * Math.min(...before.map(f => noteInfo(f, m).e)) && shareOfNewSound(fr, m) >= 0.3; // newly struck, not left ringing, and not a noise
     const justPlayed = now - mic.hitAt < 700 && mic.lastNotes.some(L => (m - L) % 12 === 0);
     const sameAgain = m === mic.lastWrong && now - mic.wrongAt < 700;
     if (!fresh || justPlayed || sameAgain) return;
