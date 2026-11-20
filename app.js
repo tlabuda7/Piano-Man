@@ -24,7 +24,7 @@
   const S = {
     id: null, song: null, steps: [], idx: 0, mode: 'learn', playing: false, view: 0, li: 0,
     hands: 'B', tempo: 1, loopA: null, loopB: null, hit: new Set(), misses: [], finished: false,
-    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null
+    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, ppb: 64, loopBars: null
   };
 
   function barOf(t) {
@@ -52,9 +52,9 @@
     store.set('pm.last', S.id);
     const hasL = S.song.notes.some(n => n.h === 'L');
     $('hands').hidden = !hasL;
-    if (!hasL) { S.hands = 'B'; $('hands').value = 'B'; }
+    if (!hasL) S.hands = 'B';
     if (!S.song.notes.some(n => n.f)) window.assignFingering(S.song);
-    S.loopA = S.loopB = null;
+    S.loopA = S.loopB = null; S.loopBars = null;
     buildSteps(); setRange(); restart();
   }
 
@@ -214,11 +214,21 @@
     updateUI();
   }
 
-  function loopBar(bar) {
-    const idxs = S.steps.map((s, i) => (barOf(s.t) === bar ? i : -1)).filter(i => i >= 0);
+  // Repeat bars b1..b2 (inclusive).
+  function loopBar(b1, b2) {
+    if (b2 == null) b2 = b1;
+    const idxs = S.steps.map((s, i) => (barOf(s.t) >= b1 && barOf(s.t) <= b2 ? i : -1)).filter(i => i >= 0);
     if (!idxs.length) return;
-    S.loopA = idxs[0]; S.loopB = idxs[idxs.length - 1];
+    S.loopA = idxs[0]; S.loopB = idxs[idxs.length - 1]; S.loopBars = [b1, b2];
     restart();
+  }
+  function stopLoop() { S.loopA = S.loopB = null; S.loopBars = null; updateUI(); }
+  // Tapping a bar number: start repeating that bar, stretch the section to it, or (inside the section) stop.
+  function tapBar(bar) {
+    const L = S.loopBars;
+    if (!L) loopBar(bar);
+    else if (bar >= L[0] && bar <= L[1]) stopLoop();
+    else loopBar(Math.min(bar, L[0]), Math.max(bar, L[1]));
   }
 
   // ---------- Sound ----------
@@ -658,13 +668,14 @@
 
   // ---------- Drawing ----------
   const cv = $('stage'), ctx = cv.getContext('2d');
-  const PPB = 64;
+  // Pixels per beat: fewer on short screens, so a couple of bars stay in view.
 
   function layoutKeys() {
     const whites = [];
     for (let m = S.lo; m <= S.hi; m++) if (!isBlack(m)) whites.push(m);
-    const ww = S.W / whites.length, keyH = Math.min(150, S.H * 0.4);
+    const ww = S.W / whites.length, keyH = Math.min(140, S.H * 0.36);
     S.hitY = S.H - keyH; S.keyH = keyH; S.keys = [];
+    S.ppb = Math.max(40, Math.min(64, S.hitY / 5.5));
     let wi = 0;
     for (let m = S.lo; m <= S.hi; m++) {
       if (isBlack(m)) S.keys.push({ m, black: true, x: wi * ww - ww * 0.31, w: ww * 0.62, h: keyH * 0.62 });
@@ -736,17 +747,28 @@
     ctx.strokeStyle = 'rgba(42,31,20,0.55)'; ctx.lineWidth = 1; ctx.beginPath();
     ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillStyle = COL.dim; ctx.font = `italic 12px ${SERIF}`;
     const firstBar = Math.floor((S.view - s.pickup) / s.barLen);
+    const tags = [];
     for (let b = firstBar; b < firstBar + 14; b++) {
-      const y = Math.round(hitY - (s.pickup + b * s.barLen - S.view) * PPB) + 0.5;
+      const y = Math.round(hitY - 7 - (s.pickup + b * s.barLen - S.view) * S.ppb) + 0.5;
       if (y < 0) break;
-      if (y <= hitY - 4) { ctx.moveTo(0, y); ctx.lineTo(W, y); if (b >= 0) ctx.fillText(String(b + 1), 4, y - 2); }
+      const inLoop = S.loopBars && b + 1 >= S.loopBars[0] && b + 1 <= S.loopBars[1];
+      if (inLoop) { ctx.fillStyle = 'rgba(125,42,28,0.09)'; ctx.fillRect(0, y - s.barLen * S.ppb, W, s.barLen * S.ppb); }
+      if (y <= hitY - 4) { ctx.moveTo(0, y); ctx.lineTo(W, y); if (b >= 0) tags.push([b + 1, y, inLoop]); }
     }
     ctx.stroke();
+    // bar numbers sit in small ruled boxes in the margin: tap one to repeat that bar
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `italic 600 13px ${SERIF}`;
+    for (const [num, y, inLoop] of tags) {
+      const w = num > 99 ? 34 : 28;
+      ctx.fillStyle = inLoop ? '#7d2a1c' : COL.leaf; ctx.fillRect(3, y - 25, w, 20);
+      ctx.strokeStyle = inLoop ? '#7d2a1c' : 'rgba(42,31,20,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(3.5, y - 24.5, w - 1, 19);
+      ctx.fillStyle = inLoop ? COL.leaf : COL.ink; ctx.fillText(String(num), 3 + w / 2, y - 14.5);
+    }
     // falling notes
     const step = S.steps[S.idx];
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const n of s.notes) {
-      const yb = hitY - 7 - (n.t - S.view) * PPB, h = Math.max(16, n.d * PPB - 3); // heads rest just above the double rule
+      const yb = hitY - 7 - (n.t - S.view) * S.ppb, h = Math.max(16, n.d * S.ppb - 3); // heads rest just above the double rule
       if (yb < 0 || yb - h > hitY) continue;
       const k = keyOf(n.m); if (!k) continue;
       const active = S.hands === 'B' || n.h === S.hands || !s.notes.some(x => x.h === S.hands);
@@ -830,9 +852,11 @@
     $('songBtn').append(sm, ti);
     $('scrub').max = S.steps.length - 1; $('scrub').value = S.idx;
     $('pos').textContent = `${S.idx + 1} / ${S.steps.length}`;
-    const looping = S.loopA != null || S.loopB != null;
-    $('loopClear').hidden = !looping;
-    $('loopInfo').textContent = looping ? `Repeating notes ${(S.loopA || 0) + 1} to ${(S.loopB != null ? S.loopB : S.steps.length - 1) + 1}.` : 'Move the slider to a spot, then mark where the section starts and ends.';
+    const L = S.loopBars;
+    $('loopClear').hidden = !L;
+    if (L) $('loopClear').textContent = 'Repeating ' + (L[0] === L[1] ? barLabel(L[0]) : `bars ${Math.max(1, L[0])}\u2013${L[1]}`) + ' \u00b7 stop';
+    for (const b of $('hands').children) b.classList.toggle('on', b.dataset.v === S.hands);
+    for (const b of $('speed').children) b.classList.toggle('on', +b.dataset.v === S.tempo);
     $('modeLearn').classList.toggle('on', S.mode === 'learn');
     $('modeListen').classList.toggle('on', S.mode === 'listen');
     $('playBtn').hidden = S.mode !== 'listen'; $('playBtn').textContent = S.playing ? 'Pause' : 'Play';
@@ -866,28 +890,32 @@
     const spb = 60 / S.song.bpm;
     S.steps[S.idx].notes.forEach(n => tone(n.m, Math.min(1.5, n.d * spb)));
   };
+  $('hands').onclick = e => { if (e.target.dataset.v) $('hands').onchange({ target: { value: e.target.dataset.v } }); };
+  $('speed').onclick = e => { if (e.target.dataset.v) { S.tempo = +e.target.dataset.v; store.set('pm.speed', S.tempo); updateUI(); } };
   $('hands').onchange = e => {
     S.hands = e.target.value;
     const t = S.steps[S.idx].t;
     buildSteps(); setRange();
-    S.loopA = S.loopB = null;
+    S.loopA = S.loopB = null; S.loopBars = null;
     S.idx = Math.max(0, S.steps.findIndex(s => s.t >= t - 1e-6));
     S.hit.clear(); S.misses = []; S.finished = false; endHold();
     prompt(); updateUI();
   };
-  $('speed').onchange = e => { S.tempo = +e.target.value; };
   $('scrub').oninput = e => {
     S.idx = +e.target.value; S.hit.clear(); S.finished = false; endHold();
     if (S.mode === 'listen') { S.view = S.steps[S.idx].t - 0.001; seekListen(); }
     prompt(); updateUI();
   };
-  $('loopA').onclick = () => { S.loopA = S.idx; if (S.loopB != null && S.loopB < S.loopA) S.loopB = null; updateUI(); };
-  $('loopB').onclick = () => { S.loopB = S.idx; if (S.loopA == null || S.loopA > S.loopB) S.loopA = 0; S.idx = S.loopA; S.hit.clear(); endHold(); if (S.mode === 'listen') { S.view = S.steps[S.idx].t - 1; seekListen(); } prompt(); updateUI(); };
-  $('loopClear').onclick = () => { S.loopA = S.loopB = null; updateUI(); };
+  $('loopClear').onclick = stopLoop;
 
   cv.addEventListener('pointerdown', ev => {
     const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-    if (y < S.hitY) return;
+    if (y < S.hitY) { // the left margin of the notes: bar numbers
+      if (x > 52) return;
+      const bar = Math.floor((S.view + (S.hitY - 7 - y) / S.ppb - S.song.pickup) / S.song.barLen) + 1;
+      if (bar >= 1 && S.steps.some(st => barOf(st.t) === bar)) tapBar(bar);
+      return;
+    }
     ev.preventDefault();
     const inKey = k => x >= k.x && x < k.x + k.w && y < S.hitY + k.h;
     const k = S.keys.find(k => k.black && inKey(k)) || S.keys.find(k => !k.black && inKey(k));
@@ -991,6 +1019,7 @@
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
   resize();
+  S.tempo = [0.5, 0.75, 1].includes(store.get('pm.speed', 1)) ? store.get('pm.speed', 1) : 1;
   selectSong(store.get('pm.last', builtins[0].id));
   mic.userOff = store.get('pm.micOff', false);
   autoMic();

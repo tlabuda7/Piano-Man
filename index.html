@@ -48,7 +48,7 @@
   button.on, button.primary { background: var(--ink); color: var(--leaf); box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rule); }
   .pad { padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); }
 
-  #top { display: flex; gap: 10px; align-items: center; padding-block: 6px 5px; border-bottom: 3px double var(--ink); }
+  #top { display: flex; gap: 10px; align-items: center; padding-block: 5px 4px; border-bottom: 3px double var(--ink); }
   /* The song is a plate with a caret, like the other menus, so it reads as something you can change. */
   #songBtn { flex: 1; min-width: 0; text-align: left; padding: 5px 30px 5px 11px; background: no-repeat right 11px center / 11px 7px
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 6'%3E%3Cpath d='M0 0l4.5 6L9 0z' fill='%232a1f14'/%3E%3C/svg%3E"); }
@@ -58,8 +58,8 @@
   .seg button { min-height: 34px; padding: 4px 11px; }
   .seg button + button { margin-left: -1px; }
 
-  #coach { display: flex; align-items: center; gap: 12px; padding-block: 6px 4px; min-height: 62px; flex-wrap: wrap; }
-  #coachBig { font: 700 36px/1 var(--display); }
+  #coach { display: flex; align-items: center; gap: 12px; padding-block: 3px 2px; min-height: 52px; flex-wrap: wrap; }
+  #coachBig { font: 700 32px/1 var(--display); }
   #coachBig.long { font-size: 26px; }
   #coachBig:empty { display: none; }
   #coachMsg { flex: 1; min-width: 0; color: var(--dim); font-size: 15px; }
@@ -68,19 +68,29 @@
   #coachActions { display: flex; gap: 6px; }
   #coachActions:empty { display: none; }
 
-  #tools { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding-block: 2px 4px; }
+  #tools { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; padding-block: 2px 2px; }
+  #tools button { min-height: 34px; padding-block: 4px; }
+  #coach button { min-height: 36px; padding-block: 5px; }
   #tools > button { flex: 1; }
+  /* Hand and speed switches share one row even on the narrowest phone. */
+  #tools .seg { flex: 1.3 1 0; min-width: 0; }
+  #tools .seg button { flex: 1 1 0; min-width: 0; padding-inline: 2px; letter-spacing: .02em; font-size: 15px; }
+  #tools #speed { flex-grow: 1; }
+  .brk { flex-basis: 100%; height: 0; }
   #seek { flex: 1 1 100%; display: flex; gap: 10px; align-items: center; }
   #micBtn { position: relative; overflow: hidden; }
   #micLevel { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 3px; background: rgba(42, 31, 20, .15); }
   #micLevel i { display: block; height: 100%; width: 0; background: var(--ok); }
   #track { flex: 1; min-width: 60px; position: relative; display: flex; align-items: center; }
-  #scrub { width: 100%; height: 36px; accent-color: var(--ink); margin: 0; }
+  #scrub { width: 100%; height: 28px; accent-color: var(--ink); margin: 0; }
   #holdBar { position: absolute; left: 0; right: 0; bottom: 1px; height: 3px; overflow: hidden; }
   #holdBar i { display: block; height: 100%; width: 0; background: var(--ok); }
   #pos { color: var(--dim); font-style: italic; font-size: 13.5px; font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
 
   #stageWrap { flex: 1; min-height: 0; margin-bottom: env(safe-area-inset-bottom, 0px); position: relative; border-top: 1px solid var(--ink); }
+  /* Shown over the top of the notes while a section repeats. */
+  #loopClear { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 1; background: var(--rubric); color: var(--leaf);
+    border-color: var(--rubric); box-shadow: inset 0 0 0 2px var(--rubric), inset 0 0 0 3px rgba(246, 237, 216, .5); min-height: 34px; padding: 4px 12px; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
 
   /* Phone on its side: the three control rows become one and a half, leaving the height for the keys. */
@@ -88,7 +98,9 @@
     body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
     #top { padding-block: 3px; border-bottom: 0; }
     #songBtn small { display: none; }
-    #tools > button { flex: none; }
+    #tools > button, #tools .seg, #tools #speed { flex: none; }
+    #tools .seg button { flex: none; padding-inline: 9px; min-width: 42px; }
+    .brk { display: none; }
     #seek { flex: 1 1 160px; order: 1; }
     #moreBtn { order: 2; }
     #coach { min-height: 44px; padding-block: 2px; }
@@ -146,6 +158,13 @@
   </div>
 
   <div id="tools" class="pad">
+    <div id="hands" class="seg" role="group" aria-label="Which hand">
+      <button data-v="B">Both</button><button data-v="R">Right</button><button data-v="L">Left</button>
+    </div>
+    <div id="speed" class="seg" role="group" aria-label="Speed">
+      <button data-v="0.5">Half</button><button data-v="0.75">&frac34;</button><button data-v="1">Full</button>
+    </div>
+    <i class="brk"></i>
     <button id="micBtn"><span id="micLabel">Mic off</span><span id="micLevel" hidden><i></i></span></button>
     <button id="restartBtn">Restart</button>
     <button id="moreBtn">Options</button>
@@ -158,33 +177,17 @@
     </div>
   </div>
 
-  <div id="stageWrap"><canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas></div>
+  <div id="stageWrap">
+    <canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas>
+    <button id="loopClear" hidden></button>
+  </div>
 
   <div id="moreWrap" hidden>
     <div id="more" class="pad">
       <div class="row between"><h2>Options</h2><button id="moreClose" class="primary">Done</button></div>
 
-      <h3>Practice</h3>
-      <div class="row">
-        <select id="hands" aria-label="Hands">
-          <option value="B">Both hands</option>
-          <option value="R">Right hand only</option>
-          <option value="L">Left hand only</option>
-        </select>
-        <select id="speed" aria-label="Speed">
-          <option value="0.5">Half speed</option>
-          <option value="0.75">75% speed</option>
-          <option value="1" selected>Full speed</option>
-        </select>
-      </div>
-
       <h3>Repeat a section</h3>
-      <div class="row">
-        <button id="loopA">Start here</button>
-        <button id="loopB">End here</button>
-        <button id="loopClear" hidden>Stop repeating</button>
-      </div>
-      <p class="note" id="loopInfo"></p>
+      <p class="note">Tap a bar number at the left edge of the notes to repeat that bar. Tap another bar number to stretch the section to it. Tap a number inside the section, or the banner above the notes, to stop.</p>
 
       <h3>Show</h3>
       <label class="chk"><input id="optFingers" type="checkbox" checked> Finger numbers (1 = thumb, 5 = little finger)</label>
