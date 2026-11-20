@@ -49,8 +49,11 @@
   .pad { padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); }
 
   #top { display: flex; gap: 10px; align-items: center; padding-block: 6px 5px; border-bottom: 3px double var(--ink); }
-  #songBtn { flex: 1; min-width: 0; text-align: left; border: 0; box-shadow: none; padding: 4px 0; font: italic 600 21px/1.15 var(--serif); letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
-  #songBtn small { display: block; color: var(--dim); font: 400 12px var(--serif); font-variant: small-caps; letter-spacing: .08em; }
+  /* The song is a plate with a caret, like the other menus, so it reads as something you can change. */
+  #songBtn { flex: 1; min-width: 0; text-align: left; padding: 5px 30px 5px 11px; background: no-repeat right 11px center / 11px 7px
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 6'%3E%3Cpath d='M0 0l4.5 6L9 0z' fill='%232a1f14'/%3E%3C/svg%3E"); }
+  #songBtn small { display: block; color: var(--rubric); font: 600 11.5px var(--serif); font-variant: small-caps; letter-spacing: .14em; }
+  #songBtn span { display: block; font: italic 600 18px/1.15 var(--serif); font-variant: normal; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
   .seg { display: flex; }
   .seg button { min-height: 34px; padding: 4px 11px; }
   .seg button + button { margin-left: -1px; }
@@ -65,7 +68,9 @@
   #coachActions { display: flex; gap: 6px; }
   #coachActions:empty { display: none; }
 
-  #tools { display: flex; gap: 10px; align-items: center; padding-block: 2px 7px; }
+  #tools { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding-block: 2px 4px; }
+  #tools > button { flex: 1; }
+  #seek { flex: 1 1 100%; display: flex; gap: 10px; align-items: center; }
   #micBtn { position: relative; overflow: hidden; }
   #micLevel { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 3px; background: rgba(42, 31, 20, .15); }
   #micLevel i { display: block; height: 100%; width: 0; background: var(--ok); }
@@ -83,6 +88,9 @@
     body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
     #top { padding-block: 3px; border-bottom: 0; }
     #songBtn small { display: none; }
+    #tools > button { flex: none; }
+    #seek { flex: 1 1 160px; order: 1; }
+    #moreBtn { order: 2; }
     #coach { min-height: 44px; padding-block: 2px; }
     #coachBig { font-size: 26px; }
     #tools, #stageWrap { grid-column: 1 / -1; }
@@ -122,7 +130,7 @@
 </head>
 <body>
   <div id="top" class="pad">
-    <button id="songBtn" aria-label="Choose a song"></button>
+    <button id="songBtn" aria-label="Change song"></button>
     <div class="seg" role="group" aria-label="Mode">
       <button id="modeLearn" class="on">Learn</button>
       <button id="modeListen">Listen</button>
@@ -139,12 +147,15 @@
 
   <div id="tools" class="pad">
     <button id="micBtn"><span id="micLabel">Mic off</span><span id="micLevel" hidden><i></i></span></button>
-    <div id="track">
-      <input id="scrub" type="range" min="0" max="1" value="0" step="1" aria-label="Position in song">
-      <div id="holdBar"><i></i></div>
-    </div>
-    <span id="pos"></span>
+    <button id="restartBtn">Restart</button>
     <button id="moreBtn">Options</button>
+    <div id="seek">
+      <div id="track">
+        <input id="scrub" type="range" min="0" max="1" value="0" step="1" aria-label="Position in song">
+        <div id="holdBar"><i></i></div>
+      </div>
+      <span id="pos"></span>
+    </div>
   </div>
 
   <div id="stageWrap"><canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas></div>
@@ -155,7 +166,6 @@
 
       <h3>Practice</h3>
       <div class="row">
-        <button id="restartBtn">Start over</button>
         <select id="hands" aria-label="Hands">
           <option value="B">Both hands</option>
           <option value="R">Right hand only</option>

@@ -398,7 +398,9 @@
   function audioMode(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* older iOS */ } }
   audioMode('playback');
 
-  async function toggleMic() {
+  // auto: started by the app itself (opening Learn), so a refusal is noted quietly instead of interrupting.
+  async function toggleMic(auto) {
+    if (mic.busy) return;
     if (mic.on) {
       mic.stream.getTracks().forEach(t => t.stop());
       audioMode('playback');
@@ -409,7 +411,10 @@
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('unsupported');
       audioMode('play-and-record');
       const a = audio();
+      mic.busy = true;
       mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      mic.busy = false;
+      if (S.mode !== 'learn') { mic.stream.getTracks().forEach(t => t.stop()); audioMode('playback'); return; } // moved to Listen meanwhile
       mic.an = a.createAnalyser(); mic.an.fftSize = FFT_N;
       a.createMediaStreamSource(mic.stream).connect(mic.an);
       mic.time = new Float32Array(FFT_N); mic.sr = a.sampleRate;
@@ -419,12 +424,13 @@
       $('micInfo').textContent = 'Listening for your piano';
       $('micLevel').hidden = false;
     } catch (e) {
+      mic.busy = false; mic.denied = true;
       audioMode('playback');
       const why = e.message === 'unsupported'
         ? 'This browser cannot use the microphone here. Open the app over https in Safari.'
         : 'Microphone blocked. Allow it in your browser settings, then try again.';
       $('micInfo').textContent = why;
-      coach('', '', why);
+      if (auto !== true) coach('', '', why);
     }
   }
 
@@ -743,9 +749,9 @@
   function updateUI() {
     const st = stats[S.id];
     $('songBtn').innerHTML = '';
-    $('songBtn').append(S.song.title);
-    const sm = document.createElement('small'); sm.textContent = st && st.best != null ? 'best ' + st.best + '%' : 'tap to change';
-    $('songBtn').append(sm);
+    const sm = document.createElement('small'); sm.textContent = 'Song' + (st && st.best != null ? ' · best ' + st.best + '%' : '');
+    const ti = document.createElement('span'); ti.textContent = S.song.title;
+    $('songBtn').append(sm, ti);
     $('scrub').max = S.steps.length - 1; $('scrub').value = S.idx;
     $('pos').textContent = `${S.idx + 1} / ${S.steps.length}`;
     const looping = S.loopA != null || S.loopB != null;
@@ -761,8 +767,8 @@
     S.mode = mode; S.playing = false; S.finished = false; S.hit.clear(); endHold();
     // iPhones play sound quietly through the earpiece while the microphone is on,
     // so the mic is switched off for Listen and back on when you return to Learn.
-    if (mode === 'listen' && mic.on) { mic.resume = true; toggleMic(); }
-    else if (mode === 'learn' && mic.resume) { mic.resume = false; if (!mic.on) toggleMic(); }
+    if (mode === 'listen' && mic.on) toggleMic();
+    else if (mode === 'learn') autoMic();
     if (mode === 'listen') { S.view = S.steps[S.idx].t - 1; seekListen(); }
     prompt(); updateUI();
   }
@@ -770,7 +776,10 @@
   $('modeLearn').onclick = () => setMode('learn');
   $('modeListen').onclick = () => setMode('listen');
   $('restartBtn').onclick = restart;
-  $('micBtn').onclick = toggleMic;
+  $('micBtn').onclick = () => { mic.userOff = mic.on; mic.denied = false; store.set('pm.micOff', mic.userOff); toggleMic(); };
+  // Learn mode needs the microphone, so it comes on by itself unless you have switched it off.
+  function autoMic() { if (S.mode === 'learn' && !mic.on && !mic.userOff && !mic.denied) toggleMic(true); }
+  document.addEventListener('pointerdown', () => { if (ac && ac.state === 'suspended') ac.resume(); }); // sound can only start after a touch
   $('playBtn').onclick = () => {
     audio();
     const last = S.steps[S.steps.length - 1];
@@ -907,6 +916,8 @@
   new ResizeObserver(resize).observe(cv.parentElement);
   resize();
   selectSong(store.get('pm.last', builtins[0].id));
+  mic.userOff = store.get('pm.micOff', false);
+  autoMic();
   requestAnimationFrame(frame);
   window.__pm = { S, noteInput, mic, micProcess, tickHold, listeningReport, setClock(f) { clock = f; } }; // handy for debugging from the console
 })();
