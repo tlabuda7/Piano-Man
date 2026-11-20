@@ -4,7 +4,8 @@
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const noteName = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
   const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
-  const COL = { bg: '#10121a', lane: '#181c2a', line: '#2c3246', fg: '#ece8dc', dim: '#9aa0b4', R: '#f2b33d', L: '#4fc3c7', ok: '#5fd38a', bad: '#ff6b6b', white: '#f3efe4', black: '#20232e' };
+  const COL = { paper: '#efe3c8', leaf: '#f6edd8', ink: '#2a1f14', dim: '#6b5a43', rule: '#b7a37e', R: '#b07a1c', L: '#2f5574', ok: '#3f7a4a', bad: '#c7361f', white: '#fbf5e4', black: '#231a11' };
+  const SERIF = 'Baskerville, "Hoefler Text", Palatino, Georgia, serif';
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } }
@@ -606,44 +607,74 @@
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
 
+  // Aged paper: a small tile of speckles and fibres, used behind the page and the note lane.
+  const paperTile = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 180;
+    const x = c.getContext('2d');
+    x.fillStyle = COL.paper; x.fillRect(0, 0, 180, 180);
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 2600; i++) {
+      x.fillStyle = rnd() < 0.6 ? `rgba(110,80,35,${0.02 + rnd() * 0.05})` : `rgba(255,250,236,${0.05 + rnd() * 0.1})`;
+      x.fillRect(rnd() * 180, rnd() * 180, 1 + rnd() * 1.6, 1 + rnd() * 1.6);
+    }
+    x.strokeStyle = 'rgba(110,80,35,0.05)'; x.lineWidth = 0.6;
+    for (let i = 0; i < 26; i++) { const a = rnd() * 180, b = rnd() * 180, t = rnd() * 6.3; x.beginPath(); x.moveTo(a, b); x.lineTo(a + Math.cos(t) * 14, b + Math.sin(t) * 14); x.stroke(); }
+    return c;
+  })();
+  try { document.documentElement.style.setProperty('--tile', `url(${paperTile.toDataURL()})`); } catch (e) { /* plain paper colour */ }
+  const paperFill = ctx.createPattern(paperTile, 'repeat');
+
+  // A note is drawn the way an engraver would: a notehead where the key is struck and a stem as long as it lasts.
+  // Notes of two beats or more get an open (hollow) head, like half notes on a printed page.
+  function drawNote(cx, yb, h, r, ink, open, label, faded) {
+    ctx.globalAlpha = faded ? 0.28 : 1;
+    ctx.fillStyle = ink;
+    rr(cx - 2.5, yb - h, 5, Math.max(0, h - r), 2.5); ctx.fill();
+    ctx.save(); ctx.translate(cx, yb - r * 0.78); ctx.rotate(-0.32);
+    ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.78, 0, 0, Math.PI * 2); ctx.fill();
+    if (open) { ctx.fillStyle = COL.leaf; ctx.beginPath(); ctx.ellipse(0, 0, r * 0.74, r * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    if (label) {
+      ctx.fillStyle = open ? COL.ink : COL.leaf;
+      ctx.font = `700 ${Math.round(r * (label.length > 1 ? 0.95 : 1.2))}px ${SERIF}`;
+      ctx.fillText(label, cx, yb - r * 0.74);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function draw(now) {
     const { W, H, hitY } = S, s = S.song;
-    const lane = ctx.createLinearGradient(0, 0, 0, hitY);
-    lane.addColorStop(0, COL.bg); lane.addColorStop(1, COL.lane);
-    ctx.fillStyle = lane; ctx.fillRect(0, 0, W, H);
-    // octave guides and bar lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.fillStyle = paperFill || COL.paper; ctx.fillRect(0, 0, W, H);
+    const shade = ctx.createLinearGradient(0, 0, W, 0); // the page darkens slightly toward its edges
+    shade.addColorStop(0, 'rgba(110,80,35,0.14)'); shade.addColorStop(0.12, 'rgba(110,80,35,0)'); shade.addColorStop(0.88, 'rgba(110,80,35,0)'); shade.addColorStop(1, 'rgba(110,80,35,0.14)');
+    ctx.fillStyle = shade; ctx.fillRect(0, 0, W, hitY);
+    // octave guides (fine ruled lines) and bar lines (ink, numbered in the margin)
+    ctx.strokeStyle = 'rgba(42,31,20,0.16)'; ctx.lineWidth = 0.75; ctx.beginPath();
     S.keys.forEach(k => { if (k.m % 12 === 0 && k.x > 0) { ctx.moveTo(k.x, 0); ctx.lineTo(k.x, hitY); } });
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(42,31,20,0.55)'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillStyle = COL.dim; ctx.font = `italic 12px ${SERIF}`;
     const firstBar = Math.floor((S.view - s.pickup) / s.barLen);
-    for (let b = firstBar; b < firstBar + 12; b++) {
-      const y = hitY - (s.pickup + b * s.barLen - S.view) * PPB;
+    for (let b = firstBar; b < firstBar + 14; b++) {
+      const y = Math.round(hitY - (s.pickup + b * s.barLen - S.view) * PPB) + 0.5;
       if (y < 0) break;
-      if (y <= hitY) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+      if (y <= hitY - 4) { ctx.moveTo(0, y); ctx.lineTo(W, y); if (b >= 0) ctx.fillText(String(b + 1), 4, y - 2); }
     }
     ctx.stroke();
     // falling notes
     const step = S.steps[S.idx];
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const n of s.notes) {
-      const yb = hitY - (n.t - S.view) * PPB, h = Math.max(14, n.d * PPB - 3), yt = yb - h;
-      if (yb < 0 || yt > hitY) continue;
+      const yb = hitY - 7 - (n.t - S.view) * PPB, h = Math.max(16, n.d * PPB - 3); // heads rest just above the double rule
+      if (yb < 0 || yb - h > hitY) continue;
       const k = keyOf(n.m); if (!k) continue;
       const active = S.hands === 'B' || n.h === S.hands || !s.notes.some(x => x.h === S.hands);
-      const w = Math.max(k.w - 3, 15), x = k.x + k.w / 2 - w / 2;
-      ctx.globalAlpha = active ? 1 : 0.3;
-      ctx.fillStyle = COL[n.h];
-      rr(x, yt, w, h, 7); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.22)'; rr(x + 2, yt + 2, w - 4, Math.min(h - 4, 5), 3); ctx.fill(); // soft highlight
       const showFinger = opts.fingers && n.f && active;
-      if (opts.names || showFinger) {
-        const label = showFinger ? String(n.f) : NAMES[n.m % 12].replace('#', '\u266f');
-        ctx.fillStyle = '#1a1405'; ctx.font = '700 ' + Math.min(13, w * (label.length > 1 ? 0.6 : 0.75)) + 'px sans-serif';
-        ctx.fillText(label, x + w / 2, yb - 9);
-      }
-      ctx.globalAlpha = 1;
+      const label = showFinger ? String(n.f) : opts.names ? NAMES[n.m % 12].replace('#', '♯') : '';
+      drawNote(k.x + k.w / 2, yb, h, Math.max(8, Math.min(11, k.w * 0.62)), COL[n.h], n.d >= 2, label, !active);
     }
-    // keyboard
-    ctx.fillStyle = '#07080c'; ctx.fillRect(0, hitY, W, H - hitY);
+    // keyboard: ivory and ebony with inked outlines
+    ctx.fillStyle = COL.ink; ctx.fillRect(0, hitY, W, H - hitY);
     const targets = new Map();
     if (S.mode === 'learn' && !S.finished && !tooEarly()) step.notes.forEach(n => { if (!S.hit.has(n.m)) targets.set(n.m, n.h); });
     const fillFor = k => {
@@ -656,25 +687,23 @@
       for (const k of S.keys) {
         if (k.black !== pass) continue;
         const base = fillFor(k), plain = base === COL.white || base === COL.black;
-        if (plain) {
+        if (plain && !k.black) {
           const g = ctx.createLinearGradient(0, hitY, 0, hitY + k.h);
-          if (k.black) { g.addColorStop(0, '#2b2f3d'); g.addColorStop(1, '#14161d'); }
-          else { g.addColorStop(0, '#d9d5ca'); g.addColorStop(0.12, COL.white); g.addColorStop(1, '#fffdf6'); }
+          g.addColorStop(0, '#d9cdb0'); g.addColorStop(0.1, COL.white); g.addColorStop(1, '#fffaf0');
           ctx.fillStyle = g;
         } else ctx.fillStyle = base;
-        rr(k.x + 0.75, hitY + 2, k.w - 1.5, k.h - 3, k.black ? 3 : 5); ctx.fill();
+        rr(k.x + 0.6, hitY + 3, k.w - 1.2, k.h - 4, k.black ? 1.5 : 2.5); ctx.fill();
+        if (k.black && !plain) { ctx.strokeStyle = COL.ink; ctx.lineWidth = 1; ctx.stroke(); }
         const lit = targets.has(k.m) || S.flashes.has(k.m);
         if (opts.names && (lit || (!k.black && k.m % 12 === 0)) && k.w >= 11) {
-          ctx.fillStyle = k.black && !lit ? COL.dim : '#1a1405';
-          ctx.font = (lit ? '700 ' : '500 ') + Math.min(13, k.w * 0.55) + 'px sans-serif';
-          ctx.fillText(lit ? NAMES[k.m % 12] : noteName(k.m), k.x + k.w / 2, hitY + k.h - 14);
+          ctx.fillStyle = lit ? COL.leaf : COL.dim;
+          ctx.font = (lit ? '700 ' : 'italic 500 ') + Math.min(14, k.w * 0.6) + 'px ' + SERIF;
+          ctx.fillText(lit ? NAMES[k.m % 12].replace('#', '♯') : noteName(k.m), k.x + k.w / 2, hitY + k.h - 14);
         }
       }
     }
-    const glow = ctx.createLinearGradient(0, hitY - 26, 0, hitY);
-    glow.addColorStop(0, 'rgba(242,179,61,0)'); glow.addColorStop(1, 'rgba(242,179,61,0.16)');
-    ctx.fillStyle = glow; ctx.fillRect(0, hitY - 26, W, 26);
-    ctx.fillStyle = COL.R; ctx.fillRect(0, hitY - 1.5, W, 1.5);
+    // where notes land: a double rule, thin over thick, like a final bar line
+    ctx.fillStyle = COL.ink; ctx.fillRect(0, hitY - 5, W, 1); ctx.fillRect(0, hitY - 2.5, W, 3);
   }
 
   let lastT = 0;

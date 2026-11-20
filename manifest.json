@@ -3,7 +3,7 @@
   "short_name": "Piano Man",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#12141c",
-  "theme_color": "#12141c",
+  "background_color": "#efe3c8",
+  "theme_color": "#efe3c8",
   "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
 }
