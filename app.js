@@ -140,7 +140,7 @@
     if (match) {
       S.hit.add(match.m);
       flash(match.m, 'ok');
-      if (src === 'mic' || S.hit.size >= step.notes.length) advance();
+      if (S.hit.size >= step.notes.length) advance();
       return;
     }
     if (step.notes.some(n => n.m === m)) return; // already-held chord note
@@ -259,7 +259,7 @@
   // Wrong notes: a separate pitch tracker (YIN) has to hear one clear, steady, different note.
   const FFT_N = 16384;
   const mic = { on: false, an: null, stream: null, time: null, frames: [], hitAt: -1e9, prevHitAt: -1e9, lastC: null, lastNotes: [], attackAt: -1e9, floor: 0.01, quiet: 0,
-    cand: null, candN: 0, lastWrong: null, wrongAt: -1e9, nextAt: 0, tune: 0, hits: 0, log: [], d: new Float32Array(2049), sr: 48000 };
+    cand: null, candN: 0, lastWrong: null, wrongAt: -1e9, nextAt: 0, tune: 0, hits: 0, log: [], pendChord: {}, partialAt: 0, stale: [], d: new Float32Array(2049), sr: 48000 };
 
   const spectrum = (() => {
     const N = FFT_N, re = new Float32Array(N), im = new Float32Array(N), win = new Float32Array(N), rev = new Uint16Array(N);
@@ -342,10 +342,10 @@
     }
     return bins;
   }
-  function shareOfNewSound(fr, m) {
+  function shareOfNewSound(fr, m) { // m: one note, or several notes struck together
     const older = mic.frames.filter(f => f !== fr).slice(-8);
     if (!older.length) return 0;
-    const bins = noteBins(m).filter(i => i < fr.mag.length);
+    const bins = [...new Set([].concat(m).flatMap(noteBins))].filter(i => i < fr.mag.length);
     const en = f => bins.reduce((t, i) => t + f.mag[i] * f.mag[i], 0);
     // Compare with the most recent moment before this note started.
     const low = Math.min(...older.map(en));
@@ -465,6 +465,78 @@
     return head + '\n' + lines.join('\n');
   }
 
+  // A note whose harmonics all belong to a lower note as well (B over a low E, or the octave above) cannot be
+  // told apart by which frequencies are present. But a lone string's harmonics fade smoothly, so if this
+  // note's pitch stands far above the average of the lower note's two neighbouring harmonics, it is really there.
+  function standsOut(fr, m, lowers) {
+    const f1 = noteFreq(m), mine = findPeak(fr.mag, f1, 1).p;
+    return lowers.some(L => {
+      const fL = noteFreq(L), k = Math.round(f1 / fL);
+      return k >= 2 && Math.abs(f1 / (k * fL) - 1) < 0.025 && mine > 1.8 * Math.sqrt(findPeak(fr.mag, (k - 1) * fL, 1).p * findPeak(fr.mag, (k + 1) * fL, 1).p);
+    });
+  }
+
+  // Two or more notes written together (both hands, or a chord): every one of them has to be heard, struck
+  // within half a second of each other. Returns true if any of the wanted notes is sounding.
+  function chordListen(fr, now, dbg) {
+    const step = S.steps[S.idx], all = step.notes.map(n => n.m);
+    if (mic.partialAt && S.hit.size && now - mic.partialAt > 500) { // only part of it arrived: start the step again
+      mic.stale = [...S.hit]; // these are still ringing, so they must be struck afresh to count
+      S.hit.clear(); mic.partialAt = 0; mic.pendChord = {};
+      coach('', stepNames(step), `<b>Together.</b> Strike ${all.length > 2 ? 'all the notes' : 'both notes'} at the same moment.<span class="sub">${fingerText(step).replace(/<[^>]+>/g, '')}</span>`);
+    }
+    const want = step.notes.filter(n => !S.hit.has(n.m));
+    const settled = mic.lastC == null || now - mic.hitAt >= 450;
+    const from = Math.max(mic.prevHitAt, settled ? mic.hitAt : -1e9) + 240;
+    const baseFrames = mic.frames.filter(f => f !== fr && f.t > from).slice(-10);
+    const again = mic.frames.filter(f => f !== fr && f.t > mic.hitAt).slice(-3);
+    const coincides = (f, L) => { const fL = noteFreq(L), k = Math.max(1, Math.round(f / fL)); return Math.abs(f / (k * fL) - 1) < 0.025; };
+    const heard = [];
+    let any = false;
+    for (const n of want) {
+      const info = noteInfo(fr, n.m);
+      // An odd harmonic must show, or this could just be the companion an octave above.
+      if (!info.ok || !info.hs.some(h => h.h % 2 === 1 && h.peak)) continue;
+      any = true;
+      if (!baseFrames.length) continue;
+      const base = baseFrames.map(f => noteInfo(f, n.m)), others = all.filter(m => m !== n.m);
+      let risen = 0, own = 0;
+      info.hs.forEach((h, i) => {
+        if (!h.peak || h.p <= 1.35 * Math.min(...base.map(b => b.hs[i].p))) return;
+        risen++;
+        if (!others.some(L => coincides(h.f, L)) && !(!settled && mic.lastNotes.some(L => coincides(h.f, L)))) own++;
+      });
+      const enough = risen >= Math.min(2, info.hs.length);
+      let good = enough && own >= 1;
+      if (enough && !good) good = standsOut(fr, n.m, others.concat(settled ? [] : mic.lastNotes));
+      // the same key struck again straight after the previous step
+      if (!good && mic.lastNotes.includes(n.m) && now - mic.hitAt >= 200 && again.length &&
+        shortEnergy(fr.short, n.m) > 1.4 * Math.min(...again.map(f => shortEnergy(f.short, n.m)))) good = true;
+      if (good && mic.stale.includes(n.m) && !(again.length && shortEnergy(fr.short, n.m) > 1.4 * Math.min(...again.map(f => shortEnergy(f.short, n.m))))) good = false;
+      if (good) heard.push(n);
+    }
+    // Guard against noises: the notes together must account for the new sound, and each must last two looks.
+    const share = heard.length ? shareOfNewSound(fr, want.map(n => n.m)) : 0;
+    const prevT = mic.frames.length > 1 ? mic.frames[mic.frames.length - 2].t : -1;
+    const sure = share >= 0.3 ? heard.filter(n => mic.pendChord[n.m] === prevT) : [];
+    const pend = {};
+    if (share >= 0.3) heard.forEach(n => { if (!sure.includes(n)) pend[n.m] = now; });
+    mic.pendChord = pend;
+    dbg.note = 'chord ' + want.map(n => noteName(n.m)).join('+');
+    dbg.why = `heard ${heard.map(n => noteName(n.m)).join('+') || '-'} share${share.toFixed(2)} have ${S.hit.size}/${all.length}`;
+    const idx0 = S.idx;
+    for (const n of sure) {
+      if (!mic.partialAt) mic.partialAt = now;
+      dbg.out = 'HIT ' + noteName(n.m);
+      noteInput(n.m, 'mic');
+      if (S.idx !== idx0 || S.finished) { // the whole step is complete
+        mic.prevHitAt = mic.hitAt; mic.hitAt = now; mic.lastC = n.m; mic.lastNotes = all; mic.partialAt = 0; mic.pendChord = {}; mic.stale = [];
+        break;
+      }
+    }
+    return any;
+  }
+
   // time: the most recent FFT_N samples.
   function micProcess(time, now) {
     let e = 0;
@@ -498,6 +570,9 @@
     // 1. Is the note we are waiting for newly sounding?
     const want = S.steps[S.idx].notes.filter(n => !S.hit.has(n.m));
     let targetHeard = false;
+    if (S.steps[S.idx].notes.length > 1) {
+      if (chordListen(fr, now, dbg)) { mic.cand = null; return; }
+    } else
     for (const n of want) {
       for (const c of (opts.octave ? [n.m, n.m - 12, n.m + 12, n.m - 24, n.m + 24] : [n.m])) {
         const info = noteInfo(fr, c);
@@ -521,7 +596,7 @@
           });
           if (!explained) own++;
         });
-        const rose = own >= 1 && risen >= Math.min(2, info.hs.length);
+        const rose = risen >= Math.min(2, info.hs.length) && (own >= 1 || (!settled && standsOut(fr, c, mic.lastNotes)));
         // The same key struck again: this note suddenly louder in the last fraction of a second.
         const again = mic.frames.filter(f => f !== fr && f.t > mic.hitAt).slice(-3);
         const restruck = c === mic.lastC && now - mic.hitAt >= 200 && again.length > 0 &&
@@ -687,6 +762,7 @@
       const f = S.flashes.get(k.m);
       if (f) { if (f.until > now) return COL[f.kind]; S.flashes.delete(k.m); }
       if (targets.has(k.m)) return COL[targets.get(k.m)];
+      if (S.hit.has(k.m) && S.mode === 'learn') return COL.ok;
       return k.black ? COL.black : COL.white;
     };
     for (const pass of [false, true]) {
@@ -700,7 +776,7 @@
         } else ctx.fillStyle = base;
         rr(k.x + 0.6, hitY + 3, k.w - 1.2, k.h - 4, k.black ? 1.5 : 2.5); ctx.fill();
         if (k.black && !plain) { ctx.strokeStyle = COL.ink; ctx.lineWidth = 1; ctx.stroke(); }
-        const lit = targets.has(k.m) || S.flashes.has(k.m);
+        const lit = targets.has(k.m) || S.flashes.has(k.m) || (S.hit.has(k.m) && S.mode === 'learn');
         if (opts.names && (lit || (!k.black && k.m % 12 === 0)) && k.w >= 11) {
           ctx.fillStyle = lit ? COL.leaf : COL.dim;
           ctx.font = (lit ? '700 ' : 'italic 500 ') + Math.min(14, k.w * 0.6) + 'px ' + SERIF;
