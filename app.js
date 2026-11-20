@@ -16,7 +16,7 @@
   // ---------- Song library ----------
   let imported = store.get('pm.songs', []);
   let stats = store.get('pm.stats', {});
-  const opts = Object.assign({ names: true, octave: true, fingers: true }, store.get('pm.opts', {}));
+  const opts = Object.assign({ names: true, octave: true, fingers: true, lyrics: false }, store.get('pm.opts', {}));
   const builtins = window.BUILTIN_SONGS.map(b => ({ id: b.id, song: Parsers.parseAbc(b.abc), builtin: true }));
   const library = () => builtins.concat(imported);
 
@@ -44,6 +44,10 @@
       else steps.push({ t: n.t, notes: [n] });
     }
     S.steps = steps;
+    // Lyrics: every sung syllable in order, and for each step the syllable being sung at that moment.
+    S.syl = S.song.notes.filter(n => n.ly).map(n => ({ t: n.t, text: n.ly, line: n.ll }));
+    let k = -1;
+    for (const st of steps) { while (k + 1 < S.syl.length && S.syl[k + 1].t <= st.t + 0.01) k++; st.syl = k; }
   }
 
   function selectSong(id) {
@@ -704,7 +708,7 @@
   }
 
   function rr(x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
     ctx.beginPath();
     ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
@@ -854,6 +858,23 @@
     requestAnimationFrame(frame);
   }
 
+  // The lyric line: the whole phrase, with the syllable for the current note marked.
+  function renderLyric() {
+    const box = $('lyric');
+    box.hidden = !(opts.lyrics && S.syl && S.syl.length);
+    if (box.hidden) return;
+    const cur = Math.max(0, S.steps[S.idx].syl), started = S.steps[S.idx].syl >= 0;
+    const line = S.syl[cur].line;
+    box.textContent = '';
+    S.syl.forEach((sy, i) => {
+      if (sy.line !== line) return;
+      const sp = document.createElement('span');
+      sp.textContent = sy.text;
+      sp.className = !started || i > cur ? '' : i === cur ? 'now' : 'done';
+      box.append(sp, sy.text.endsWith('-') ? '' : ' ');
+    });
+  }
+
   // ---------- Controls ----------
   function updateUI() {
     const st = stats[S.id];
@@ -863,6 +884,7 @@
     $('songBtn').append(sm, ti);
     $('scrub').max = S.steps.length - 1; $('scrub').value = S.idx;
     $('pos').textContent = `${S.idx + 1} / ${S.steps.length}`;
+    renderLyric();
     const L = S.loopBars;
     $('loopClear').hidden = !L;
     if (L) $('loopClear').textContent = 'Repeating ' + (L[0] === L[1] ? barLabel(L[0]) : `bars ${Math.max(1, L[0])}\u2013${L[1]}`) + ' \u00b7 stop';
@@ -1002,6 +1024,8 @@
     catch (err) { $('importErr').textContent = err.message || 'Could not read that tune.'; }
   };
   $('optNames').checked = opts.names; $('optOctave').checked = opts.octave; $('optFingers').checked = opts.fingers;
+  $('optLyrics').checked = opts.lyrics;
+  $('optLyrics').onchange = e => { opts.lyrics = e.target.checked; store.set('pm.opts', opts); renderLyric(); resize(); };
   $('optFingers').onchange = e => { opts.fingers = e.target.checked; store.set('pm.opts', opts); prompt(); };
   $('optNames').onchange = e => { opts.names = e.target.checked; store.set('pm.opts', opts); };
   $('optOctave').onchange = e => { opts.octave = e.target.checked; store.set('pm.opts', opts); };

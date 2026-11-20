@@ -35,9 +35,10 @@
     const song = { title: 'Untitled', bpm: 100, barLen: 4, pickup: 0, notes: [] };
     let unit = 0.5, sig = {}, inBody = false, firstBar = null;
     const voices = {}, order = [];
+    let lyricLine = 0;
     let v = null;
     const voice = id => {
-      if (!voices[id]) { voices[id] = { idx: order.length, t: 0, acc: {}, last: [], tie: false, tuplet: 0, tf: 1, broken: 1 }; order.push(id); }
+      if (!voices[id]) { voices[id] = { idx: order.length, t: 0, acc: {}, last: [], tie: false, tuplet: 0, tf: 1, broken: 1, lineNotes: [] }; order.push(id); }
       v = voices[id];
     };
     const NOTE = /^(\^\^|\^|__|_|=)?([A-Ga-g])([,']*)(\d*)(\/+\d*)?/;
@@ -58,13 +59,13 @@
       const made = [];
       for (const p of pitches) {
         const tied = v.tie && v.last.find(n => n.m === p);
-        if (tied) { tied.d += d; made.push(tied); }
+        if (tied) { tied.d += d; tied.tiedOn = true; made.push(tied); }
         else {
           const n = { m: p, t: v.t, d, h: 'R', v: v.idx };
           song.notes.push(n); made.push(n);
         }
       }
-      if (pitches.length) { v.last = made; v.tie = false; }
+      if (pitches.length) { if (made.some(n => !n.tiedOn)) v.lineNotes.push(made[0]); v.last = made; v.tie = false; }
       v.t += d;
     }
 
@@ -84,10 +85,22 @@
         }
         else if (f === 'K') { sig = keySignature(val); inBody = true; }
         else if (f === 'V' && inBody) voice(val.trim().split(/\s+/)[0]);
+        else if (f === 'w' && inBody && v) {
+          // Lyrics for the line of music just read: one syllable per note. "-" ends a syllable inside a word,
+          // "_" holds the previous syllable for one more note, "*" skips a note.
+          let i = 0;
+          for (const tok of val.replace(/~/g, '\u00a0').match(/[^\s\-_*|]+-?|_|\*/g) || []) {
+            const note = v.lineNotes[i++];
+            if (!note) break;
+            if (tok !== '_' && tok !== '*') { note.ly = tok; note.ll = lyricLine; }
+          }
+          lyricLine++;
+        }
         continue;
       }
       if (!inBody) continue;
       if (!v) voice('1');
+      v.lineNotes = [];
       let s = line;
       while (s.length) {
         let m;
@@ -135,7 +148,7 @@
       }
     }
     if (firstBar !== null && firstBar > 0 && firstBar < song.barLen - 1e-6) song.pickup = firstBar;
-    song.notes.forEach(n => { n.h = n.v > 0 ? 'L' : 'R'; delete n.v; });
+    song.notes.forEach(n => { n.h = n.v > 0 ? 'L' : 'R'; delete n.v; delete n.tiedOn; });
     song.notes.sort((a, b) => a.t - b.t || a.m - b.m);
     if (!song.notes.length) throw new Error('No notes found. Is this ABC notation?');
     return song;

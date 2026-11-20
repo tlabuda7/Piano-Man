@@ -68,6 +68,10 @@
   #coachActions { display: flex; gap: 6px; }
   #coachActions:empty { display: none; }
 
+  /* The line being sung, set like the words under a stave; the syllable for the current note is inked in. */
+  #lyric { text-align: center; font: italic 16px/1.25 var(--serif); color: var(--dim); padding-block: 1px 5px; }
+  #lyric .done { color: var(--ink); }
+  #lyric .now { color: var(--rubric); font-weight: 700; border-bottom: 2px solid var(--rubric); }
   #tools { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; padding-block: 2px 2px; }
   #tools button { min-height: 34px; padding-block: 4px; }
   #coach button { min-height: 36px; padding-block: 5px; }
@@ -95,17 +99,21 @@
 
   /* Phone on its side: the three control rows become one and a half, leaving the height for the keys. */
   @media (orientation: landscape) and (max-height: 520px) {
-    body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+    body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); }
+    #lyric { grid-row: 2; padding-block: 0 2px; }
+    #tools { grid-row: 3; }
+    #stageWrap { grid-row: 4; }
     #top { padding-block: 3px; border-bottom: 0; }
     #songBtn small { display: none; }
     #tools > button, #tools .seg, #tools #speed { flex: none; }
     #tools .seg button { flex: none; padding-inline: 9px; min-width: 42px; }
     .brk { display: none; }
-    #seek { flex: 1 1 160px; order: 1; }
+    #seek { flex: 1 1 70px; order: 1; }
+    #pos { display: none; }
     #moreBtn { order: 2; }
     #coach { min-height: 44px; padding-block: 2px; }
     #coachBig { font-size: 26px; }
-    #tools, #stageWrap { grid-column: 1 / -1; }
+    #tools, #stageWrap, #lyric { grid-column: 1 / -1; }
     #tools { padding-block: 0 4px; }
   }
 
@@ -157,6 +165,8 @@
     <div id="coachActions"></div>
   </div>
 
+  <div id="lyric" class="pad" hidden></div>
+
   <div id="tools" class="pad">
     <div id="hands" class="seg" role="group" aria-label="Which hand">
       <button data-v="B">Both</button><button data-v="R">Right</button><button data-v="L">Left</button>
@@ -192,6 +202,7 @@
       <h3>Show</h3>
       <label class="chk"><input id="optFingers" type="checkbox" checked> Finger numbers (1 = thumb, 5 = little finger)</label>
       <label class="chk"><input id="optNames" type="checkbox" checked> Note names</label>
+      <label class="chk"><input id="optLyrics" type="checkbox"> Lyrics, for songs that have them</label>
 
       <h3>Microphone</h3>
       <label class="chk"><input id="optOctave" type="checkbox" checked> Accept the right note in any octave</label>

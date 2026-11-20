@@ -8,19 +8,28 @@ T:Here's a Health to the Company
 C:Traditional Irish
 S:Melody: transcription by Henrik Norbeck (norbeck.nu), hn-song-4. Left hand: arranged for this app.
 N:The tune is 16 bars long. It is written out twice here: once for the verse, once for the chorus.
+N:Words traditional, fitted to the notes for this app.
 M:3/4
 L:1/8
 Q:1/4=100
 K:Edor
 V:1
 BA | B2 E2 (EF) | ED B,2 (B,C) | D2 (AG) (ED) | E4
+w: Kind _ friends and com- _ pan- _ ions, come _ join me _ in _ rhyme,
 (EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 (FE) | D4
+w: Come _ lift up your voi- _ ces in _ cho- rus with _ mine.
 (EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 ((3EDC) | D4
+w: Come _ lift up your voi- _ ces, all _ grief to re- _ _ frain,
 BA | B2 E2 (EF) | (ED) B,2 (B,C) | D2 (AG) (ED) | E4
+w: For we may or might _ nev- _ er all _ meet here _ a- _ gain.
 BA | B2 E2 (EF) | ED B,2 (B,C) | D2 (AG) (ED) | E4
+w: So here's a health to the com- pa- ny and _ one to _ my _ lass,
 (EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 (FE) | D4
+w: Let's _ drink and be mer- _ ry all _ out of one _ glass.
 (EF) | G2 A2 B2 | (ed) B2 (AB) | B2 E2 ((3EDC) | D4
+w: Let's _ drink and be mer- _ ry, all _ grief to re- _ _ frain,
 BA | B2 E2 (EF) | (ED) B,2 (B,C) | D2 (AG) (ED) | E6 |]
+w: For we may or might _ nev- _ er all _ meet here _ a- _ gain.
 V:2
 z2 | E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 |
 E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | G,,2 D,2 G,2 | E,,2 B,,2 E,2 | E,,2 B,,2 E,2 | D,,2 A,,2 D,2 | E,,2 B,,2 E,2 | B,,2 F,2 D,2 | D,,2 A,,2 D,2 | E,,6 |]`
