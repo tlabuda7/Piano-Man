@@ -1040,7 +1040,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 25' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 26' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);

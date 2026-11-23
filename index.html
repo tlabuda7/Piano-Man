@@ -31,6 +31,13 @@
     -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
   }
   body, #sheet { background-image: var(--tile, none); background-size: 180px 180px; }
+  /* Installed on the iPhone home screen, recent iOS versions blur whatever sits near the top edge of a web app.
+     A solid strip fixed to that edge stops the blur; the page starts just below it. */
+  @media (display-mode: standalone) {
+    body { padding-top: calc(env(safe-area-inset-top, 0px) + 6px); }
+    #sheet { padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important; }
+    body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: calc(env(safe-area-inset-top, 0px) + 6px); background: var(--paper); z-index: 10; }
+  }
   [hidden] { display: none !important; }
   button, select, input, textarea { font: inherit; color: inherit; }
   select, textarea { font-size: 16px; } /* iPhone zooms the page when a smaller field is tapped */
@@ -240,9 +247,9 @@
     <div class="row"><button id="abcAdd">Add pasted tune</button><span id="importErr"></span></div>
   </div>
 
-<script src="songs.js?v=25"></script>
-<script src="parsers.js?v=25"></script>
-<script src="fingering.js?v=25"></script>
-<script src="app.js?v=25"></script>
+<script src="songs.js?v=26"></script>
+<script src="parsers.js?v=26"></script>
+<script src="fingering.js?v=26"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>
