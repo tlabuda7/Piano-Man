@@ -233,10 +233,13 @@
   function stopLoop() { S.loopA = S.loopB = null; S.loopBars = null; updateUI(); }
   // Tapping a bar number: start repeating that bar, stretch the section to it, or (inside the section) stop.
   function tapBar(bar) {
-    const L = S.loopBars;
+    const L = S.loopBars, view = S.view;
     if (!L) loopBar(bar);
-    else if (bar >= L[0] && bar <= L[1]) stopLoop();
+    else if (bar >= L[0] && bar <= L[1]) return stopLoop();
     else loopBar(Math.min(bar, L[0]), Math.max(bar, L[1]));
+    // Stay where you were looking, so you can go on choosing bars; the view moves to the start of the
+    // section a few seconds later, or as soon as you play a note.
+    if (S.mode === 'learn') { S.view = view; S.browse = true; S.browseUntil = clock() + 4000; }
   }
 
   // ---------- Sound ----------
@@ -1080,7 +1083,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 27' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 28' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
