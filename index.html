@@ -81,22 +81,25 @@
   #tools .seg button { flex: 1 1 0; min-width: 0; padding-inline: 2px; letter-spacing: .02em; font-size: 15px; }
   #tools #speed { flex-grow: 1; }
   .brk { flex-basis: 100%; height: 0; }
-  #seek { flex: 1 1 100%; display: flex; gap: 10px; align-items: center; }
+  #seek { display: flex; gap: 12px; align-items: center; }
   #micBtn { position: relative; overflow: hidden; }
   #micLevel { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 3px; background: rgba(42, 31, 20, .15); }
   #micLevel i { display: block; height: 100%; width: 0; background: var(--ok); }
-  #track { flex: 1; min-width: 60px; position: relative; display: flex; align-items: center; }
   /* The slider is drawn by hand: iPhones ignore colour settings and show a pale thumb that vanishes on paper. */
-  #scrub { width: 100%; height: 30px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; }
+  #scrub { flex: 1; min-width: 0; height: 40px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; }
   #scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--rule); border: 1px solid rgba(42, 31, 20, .45); }
   #scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -11px; border-radius: 50%; background: var(--ink); border: 2px solid var(--leaf); box-shadow: 0 0 0 1px var(--ink); }
   #scrub::-moz-range-track { height: 4px; border-radius: 2px; background: var(--rule); border: 1px solid rgba(42, 31, 20, .45); }
   #scrub::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--ink); border: 2px solid var(--leaf); }
-  #holdBar { position: absolute; left: 0; right: 0; bottom: 1px; height: 3px; overflow: hidden; }
+  /* Fills along the top edge of the notes while a long note is being held. */
+  #holdBar { position: absolute; left: 0; right: 0; top: 0; height: 5px; overflow: hidden; z-index: 1; pointer-events: none; }
   #holdBar i { display: block; height: 100%; width: 0; background: var(--ok); }
-  #pos { color: var(--dim); font-style: italic; font-size: 13.5px; font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
+  #pos { color: var(--dim); font-style: italic; font-size: 15px; font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+  /* Hear-it is a small square plate beside the note name. */
+  #hearBtn { min-width: 40px; padding-inline: 0; font-size: 20px; font-variant: normal; letter-spacing: 0; }
 
-  #stageWrap { flex: 1; min-height: 0; margin-bottom: env(safe-area-inset-bottom, 0px); position: relative; border-top: 1px solid var(--ink); }
+  /* The keyboard runs down behind the iPhone home bar; the padding only tells the script how tall that strip is. */
+  #stageWrap { flex: 1; min-height: 0; padding-bottom: env(safe-area-inset-bottom, 0px); position: relative; border-top: 1px solid var(--ink); }
   /* Shown over the top of the notes while a section repeats. */
   #loopClear { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 1; background: var(--rubric); color: var(--leaf);
     border-color: var(--rubric); box-shadow: inset 0 0 0 2px var(--rubric), inset 0 0 0 3px rgba(246, 237, 216, .5); min-height: 34px; padding: 4px 12px; }
@@ -113,8 +116,6 @@
     #tools > button, #tools .seg, #tools #speed { flex: none; }
     #tools .seg button { flex: none; padding-inline: 9px; min-width: 42px; }
     .brk { display: none; }
-    #seek { flex: 1 1 70px; order: 1; }
-    #pos { display: none; }
     #moreBtn { order: 2; }
     #coach { min-height: 44px; padding-block: 2px; }
     #coachBig { font-size: 26px; }
@@ -169,8 +170,8 @@
 
   <div id="coach" class="pad" aria-live="polite">
     <div id="coachBig"></div>
+    <button id="hearBtn" aria-label="Hear this note">&#9834;</button>
     <div id="coachMsg"></div>
-    <button id="hearBtn">Hear it</button>
     <button id="playBtn" class="primary" hidden>Play</button>
     <div id="coachActions"></div>
   </div>
@@ -188,16 +189,10 @@
     <button id="micBtn"><span id="micLabel">Mic off</span><span id="micLevel" hidden><i></i></span></button>
     <button id="restartBtn">Restart</button>
     <button id="moreBtn">Options</button>
-    <div id="seek">
-      <div id="track">
-        <input id="scrub" type="range" min="0" max="1" value="0" step="1" aria-label="Position in song">
-        <div id="holdBar"><i></i></div>
-      </div>
-      <span id="pos"></span>
-    </div>
   </div>
 
   <div id="stageWrap">
+    <div id="holdBar"><i></i></div>
     <canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas>
     <button id="loopClear" hidden></button>
   </div>
@@ -205,6 +200,12 @@
   <div id="moreWrap" hidden>
     <div id="more" class="pad">
       <div class="row between"><h2>Options</h2><button id="moreClose" class="primary">Done</button></div>
+
+      <h3>Jump to a place</h3>
+      <div id="seek">
+        <input id="scrub" type="range" min="0" max="1" value="0" step="1" aria-label="Position in song">
+        <span id="pos"></span>
+      </div>
 
       <h3>Repeat a section</h3>
       <p class="note">Tap a bar number at the left edge of the notes to repeat that bar. Tap another bar number to stretch the section to it. Tap a number inside the section, or the banner above the notes, to stop.</p>
@@ -242,9 +243,9 @@
     <div class="row"><button id="abcAdd">Add pasted tune</button><span id="importErr"></span></div>
   </div>
 
-<script src="songs.js?v=23"></script>
-<script src="parsers.js?v=23"></script>
-<script src="fingering.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="songs.js?v=24"></script>
+<script src="parsers.js?v=24"></script>
+<script src="fingering.js?v=24"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

@@ -24,7 +24,7 @@
   const S = {
     id: null, song: null, steps: [], idx: 0, mode: 'learn', playing: false, view: 0, li: 0,
     hands: 'B', tempo: 1, loopA: null, loopB: null, hit: new Set(), misses: [], finished: false,
-    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, ppb: 64, loopBars: null
+    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, inset: 0, ppb: 64, loopBars: null
   };
 
   function barOf(t) {
@@ -65,9 +65,12 @@
   // The keyboard shows only the octaves the chosen hand(s) need, so keys stay as large as possible.
   function setRange() {
     const ms = [].concat(...S.steps.map(s => s.notes.map(n => n.m)));
-    S.lo = Math.floor(Math.min(...ms) / 12) * 12;
-    S.hi = Math.ceil((Math.max(...ms) + 1) / 12) * 12 - 1;
-    while (S.hi - S.lo + 1 < 24) S.hi += 12;
+    // One spare white key beyond the lowest and highest notes, and never fewer than two octaves.
+    S.lo = Math.min(...ms) - 1; if (isBlack(S.lo)) S.lo--;
+    S.hi = Math.max(...ms) + 1; if (isBlack(S.hi)) S.hi++;
+    for (let up = true; S.hi - S.lo < 23; up = !up) {
+      if (up) { S.hi++; if (isBlack(S.hi)) S.hi++; } else { S.lo--; if (isBlack(S.lo)) S.lo--; }
+    }
     layoutKeys();
   }
 
@@ -119,7 +122,7 @@
       return;
     }
     const step = S.steps[S.idx];
-    const where = barLabel(barOf(step.t)).replace(/^./, ch => ch.toUpperCase());
+    const where = barLabel(barOf(step.t)).replace(/^./, ch => ch.toUpperCase()) + ` \u00b7 ${S.idx + 1} of ${S.steps.length}`;
     coach('', stepNames(step), fingerText(step) + `<span class="sub">${where}</span>`);
   }
 
@@ -688,12 +691,13 @@
   function layoutKeys() {
     const whites = [];
     for (let m = S.lo; m <= S.hi; m++) if (!isBlack(m)) whites.push(m);
-    const ww = S.W / whites.length, keyH = Math.min(140, S.H * 0.36);
+    // S.inset: the strip behind the iPhone home bar. Keys run down into it, but their labels stay above it.
+    const face = Math.min(140, (S.H - S.inset) * 0.36), keyH = face + S.inset, ww = S.W / whites.length;
     S.hitY = S.H - keyH; S.keyH = keyH; S.keys = [];
     S.ppb = Math.max(40, Math.min(64, S.hitY / 5.5));
     let wi = 0;
     for (let m = S.lo; m <= S.hi; m++) {
-      if (isBlack(m)) S.keys.push({ m, black: true, x: wi * ww - ww * 0.31, w: ww * 0.62, h: keyH * 0.62 });
+      if (isBlack(m)) S.keys.push({ m, black: true, x: wi * ww - ww * 0.31, w: ww * 0.62, h: face * 0.62 });
       else { S.keys.push({ m, black: false, x: wi * ww, w: ww, h: keyH }); wi++; }
     }
   }
@@ -701,6 +705,7 @@
 
   function resize() {
     const r = cv.parentElement.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    S.inset = parseFloat(getComputedStyle(cv.parentElement).paddingBottom) || 0;
     S.W = r.width; S.H = r.height;
     cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -817,7 +822,7 @@
         if (opts.names && (lit || (!k.black && k.m % 12 === 0)) && k.w >= 11) {
           ctx.fillStyle = lit ? COL.leaf : COL.dim;
           ctx.font = (lit ? '700 ' : 'italic 500 ') + Math.min(14, k.w * 0.6) + 'px ' + SERIF;
-          ctx.fillText(lit ? NAMES[k.m % 12].replace('#', '♯') : noteName(k.m), k.x + k.w / 2, hitY + k.h - 14);
+          ctx.fillText(lit ? NAMES[k.m % 12].replace('#', '♯') : noteName(k.m), k.x + k.w / 2, hitY + k.h - (k.black ? 0 : S.inset) - 14);
         }
       }
     }
@@ -1052,7 +1057,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 23' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 24' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
