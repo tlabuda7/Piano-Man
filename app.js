@@ -469,7 +469,7 @@
     micProcess(mic.time, now);
   }
 
-  // --- Listening report: what the microphone actually picked up over the last few seconds, as text.
+  // --- The loudest pitches in a frame, for the live readout in Options.
   function binFreq(mag, i) { // exact frequency of a peak, between analysis bins
     const a = mag[i - 1] || 0, b = mag[i] || 0, c = mag[i + 1] || 0, den = a - 2 * b + c;
     return (i + (den ? 0.5 * (a - c) / den : 0)) * mic.sr / FFT_N;
@@ -483,14 +483,6 @@
       const f = binFreq(mag, i), exact = 69 + 12 * Math.log2(f / 440), m = Math.round(exact), cents = Math.round((exact - m) * 100);
       return { f, rel: Math.round(100 * mag[i] / fr.max), label: `${noteName(m)}${cents ? (cents > 0 ? ', ' + cents + ' cents sharp' : ', ' + -cents + ' cents flat') : ''}`, short: `${f.toFixed(1)}(${noteName(m)}${cents >= 0 ? '+' : ''}${cents})${Math.round(100 * mag[i] / fr.max)}` };
     });
-  }
-  function listeningReport() {
-    const track = mic.stream && mic.stream.getAudioTracks()[0], set = track && track.getSettings ? track.getSettings() : {};
-    const head = `Piano Man listening report v5 | rate ${mic.sr} | tuning ${Math.round(mic.tune)}c after ${mic.hits} notes | room ${mic.floor.toExponential(1)} | any-octave ${opts.octave} | hands ${S.hands} | phone filters: echo ${set.echoCancellation} noise ${set.noiseSuppression} gain ${set.autoGainControl}`;
-    const t0 = mic.log.length ? mic.log[0].t : 0;
-    const lines = mic.log.map(d => `${((d.t - t0) / 1000).toFixed(2)} ${d.lvl.toFixed(0)}dB ${d.out || '-'}` +
-      (d.want ? ` want ${d.want} | ${d.note || ''} | ${d.why || ''}${d.yin ? ' | yin ' + d.yin : ''} | ${topPeaks(d.fr, 6).map(p => p.short).join(' ')}` : ''));
-    return head + '\n' + lines.join('\n');
   }
 
   // A note whose harmonics all belong to a lower note as well (B over a low E, or the octave above) cannot be
@@ -580,7 +572,7 @@
     const recent = mic.frames.slice(-4, -1);
     if (recent.length && rms > 1.25 * Math.min(...recent.map(f => f.rms))) mic.attackAt = now; // a key was just struck
     const dbg = { t: now, lvl: 20 * Math.log10(rms / gate), fr };
-    mic.log.push(dbg); if (mic.log.length > 90) mic.log.shift();
+    mic.log = [dbg]; // the latest look only, for testing
     if (rms >= gate && !$('moreWrap').hidden) {
       const top = topPeaks(fr, 1)[0];
       if (top) $('micInfo').textContent = `Loudest pitch right now: ${top.label}. This piano's tuning so far: ${Math.round(mic.tune)} cents.`;
@@ -1000,15 +992,6 @@
   }
 
   $('moreBtn').onclick = () => { $('moreWrap').hidden = false; };
-  $('reportBtn').onclick = () => {
-    const box = $('reportText');
-    box.value = mic.log.length ? listeningReport() : 'Turn the microphone on and play a few notes first.';
-    box.hidden = false;
-    if (!mic.log.length) return;
-    box.focus(); box.select();
-    const done = ok => { $('reportBtn').textContent = ok ? 'Copied. Paste it to Claude' : 'Select the text below and copy it'; };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(box.value).then(() => done(true), () => done(false)); else done(false);
-  };
   $('moreClose').onclick = () => { $('moreWrap').hidden = true; };
   $('moreWrap').onclick = e => { if (e.target === $('moreWrap')) $('moreWrap').hidden = true; };
   $('songBtn').onclick = () => { renderList(); $('importErr').textContent = ''; $('sheet').hidden = false; };
@@ -1057,7 +1040,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 24' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 25' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
@@ -1067,5 +1050,5 @@
   mic.userOff = store.get('pm.micOff', false);
   autoMic();
   requestAnimationFrame(frame);
-  window.__pm = { S, noteInput, mic, micProcess, tickHold, listeningReport, setClock(f) { clock = f; } }; // handy for debugging from the console
+  window.__pm = { S, noteInput, mic, micProcess, tickHold, setClock(f) { clock = f; } }; // handy for debugging from the console
 })();
