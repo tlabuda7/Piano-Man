@@ -86,7 +86,12 @@
   #micLevel { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 3px; background: rgba(42, 31, 20, .15); }
   #micLevel i { display: block; height: 100%; width: 0; background: var(--ok); }
   #track { flex: 1; min-width: 60px; position: relative; display: flex; align-items: center; }
-  #scrub { width: 100%; height: 28px; accent-color: var(--ink); margin: 0; }
+  /* The slider is drawn by hand: iPhones ignore colour settings and show a pale thumb that vanishes on paper. */
+  #scrub { width: 100%; height: 30px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; }
+  #scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--rule); border: 1px solid rgba(42, 31, 20, .45); }
+  #scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -11px; border-radius: 50%; background: var(--ink); border: 2px solid var(--leaf); box-shadow: 0 0 0 1px var(--ink); }
+  #scrub::-moz-range-track { height: 4px; border-radius: 2px; background: var(--rule); border: 1px solid rgba(42, 31, 20, .45); }
+  #scrub::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--ink); border: 2px solid var(--leaf); }
   #holdBar { position: absolute; left: 0; right: 0; bottom: 1px; height: 3px; overflow: hidden; }
   #holdBar i { display: block; height: 100%; width: 0; background: var(--ok); }
   #pos { color: var(--dim); font-style: italic; font-size: 13.5px; font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
@@ -130,8 +135,13 @@
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
   .between { justify-content: space-between; }
   .note { color: var(--dim); font-style: italic; font-size: 14.5px; margin: 6px 0 0; }
-  label.chk { display: flex; gap: 10px; align-items: center; padding: 7px 0; }
-  label.chk input { width: 20px; height: 20px; accent-color: var(--ink); flex: none; }
+  /* Tick boxes: the whole row is the target, and the box is large and inked like the other plates. */
+  label.chk { display: flex; gap: 14px; align-items: center; min-height: 52px; padding: 8px 0; font-size: 17px; border-bottom: 1px solid var(--rule); }
+  label.chk input { -webkit-appearance: none; appearance: none; flex: none; width: 32px; height: 32px; margin: 0; border: 1.5px solid var(--ink); border-radius: 2px;
+    background: var(--leaf) no-repeat center / 22px 22px; box-shadow: inset 0 0 0 2px var(--leaf), inset 0 0 0 3px var(--rule); }
+  label.chk input:checked { background-color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rule);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M4 11.5l5 5L18.5 5.5' fill='none' stroke='%23f6edd8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+  label.chk:active { background: rgba(42, 31, 20, .07); }
 
   /* Song library, set like a table of contents with dotted leaders. */
   #sheet { position: fixed; inset: 0; background: var(--paper); z-index: 5; display: flex; flex-direction: column;
@@ -232,9 +242,9 @@
     <div class="row"><button id="abcAdd">Add pasted tune</button><span id="importErr"></span></div>
   </div>
 
-<script src="songs.js?v=22"></script>
-<script src="parsers.js?v=22"></script>
-<script src="fingering.js?v=22"></script>
-<script src="app.js?v=22"></script>
+<script src="songs.js?v=23"></script>
+<script src="parsers.js?v=23"></script>
+<script src="fingering.js?v=23"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>

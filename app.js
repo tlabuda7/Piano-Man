@@ -771,14 +771,6 @@
       if (y <= hitY - 4) { ctx.moveTo(0, y); ctx.lineTo(W, y); if (b >= 0) tags.push([b + 1, y, inLoop]); }
     }
     ctx.stroke();
-    // bar numbers sit in small ruled boxes in the margin: tap one to repeat that bar
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `italic 600 13px ${SERIF}`;
-    for (const [num, y, inLoop] of tags) {
-      const w = num > 99 ? 34 : 28;
-      ctx.fillStyle = inLoop ? '#7d2a1c' : COL.leaf; ctx.fillRect(3, y - 25, w, 20);
-      ctx.strokeStyle = inLoop ? '#7d2a1c' : 'rgba(42,31,20,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(3.5, y - 24.5, w - 1, 19);
-      ctx.fillStyle = inLoop ? COL.leaf : COL.ink; ctx.fillText(String(num), 3 + w / 2, y - 14.5);
-    }
     // falling notes
     const step = S.steps[S.idx];
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -790,6 +782,14 @@
       const showFinger = opts.fingers && n.f && active;
       const label = showFinger ? String(n.f) : opts.names ? NAMES[n.m % 12].replace('#', '♯') : '';
       drawNote(k.x + k.w / 2, yb, h, Math.max(8, Math.min(11, k.w * 0.62)), COL[n.h], n.d >= 2, label, !active);
+    }
+    // bar numbers sit in small ruled boxes in the margin, drawn over the notes so they stay readable: tap one to repeat that bar
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `italic 600 13px ${SERIF}`;
+    for (const [num, y, inLoop] of tags) {
+      const w = num > 99 ? 34 : 28;
+      ctx.fillStyle = inLoop ? '#7d2a1c' : COL.leaf; ctx.fillRect(3, y - 25, w, 20);
+      ctx.strokeStyle = inLoop ? '#7d2a1c' : 'rgba(42,31,20,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(3.5, y - 24.5, w - 1, 19);
+      ctx.fillStyle = inLoop ? COL.leaf : COL.ink; ctx.fillText(String(num), 3 + w / 2, y - 14.5);
     }
     // keyboard: ivory and ebony with inked outlines
     ctx.fillStyle = COL.ink; ctx.fillRect(0, hitY, W, H - hitY);
@@ -1052,7 +1052,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 22' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 23' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
