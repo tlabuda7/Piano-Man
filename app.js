@@ -24,7 +24,7 @@
   const S = {
     id: null, song: null, steps: [], idx: 0, mode: 'learn', playing: false, view: 0, li: 0,
     hands: 'B', tempo: 1, loopA: null, loopB: null, hit: new Set(), misses: [], finished: false,
-    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, inset: 0, ppb: 64, loopBars: null
+    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, browse: false, browseUntil: 0, inset: 0, ppb: 64, loopBars: null
   };
 
   function barOf(t) {
@@ -76,7 +76,7 @@
 
   function restart() {
     S.idx = S.loopA != null ? S.loopA : 0;
-    S.hit.clear(); S.misses = []; S.finished = false; S.playing = false; endHold();
+    S.hit.clear(); S.misses = []; S.finished = false; S.playing = false; S.browse = false; endHold();
     S.view = S.steps[S.idx].t - (S.mode === 'listen' ? 1 : 0);
     seekListen();
     prompt(); updateUI();
@@ -135,6 +135,7 @@
 
   function noteInput(m, src) {
     if (S.mode !== 'learn' || S.finished) return;
+    S.browse = false; // playing a note ends any looking around
     if (tooEarly()) {
       const h = S.hold;
       coach('', h.names, `<b>Keep holding.</b><span class="sub">This note lasts ${beatText(h.beats)}.</span>`);
@@ -768,6 +769,11 @@
       if (y <= hitY - 4) { ctx.moveTo(0, y); ctx.lineTo(W, y); if (b >= 0) tags.push([b + 1, y, inLoop]); }
     }
     ctx.stroke();
+    if (S.loopBars) { // a box round the whole repeated section
+      const yBot = hitY - 7 - (s.pickup + (S.loopBars[0] - 1) * s.barLen - S.view) * S.ppb;
+      const yTop = hitY - 7 - (s.pickup + S.loopBars[1] * s.barLen - S.view) * S.ppb;
+      ctx.strokeStyle = '#7d2a1c'; ctx.lineWidth = 2.5; ctx.strokeRect(1.5, yTop, W - 3, yBot - yTop);
+    }
     // falling notes
     const step = S.steps[S.idx];
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -845,6 +851,8 @@
           }
           if (moved) updateUI();
         }
+      } else if (S.browse) {
+        if (!drag && now > S.browseUntil) S.browse = false; // done looking around: drift back to your place
       } else if (!tickHold(now)) {
         const target = S.steps[S.idx].t;
         S.view += (target - S.view) * Math.min(1, dt * 10);
@@ -938,12 +946,18 @@
   };
   $('loopClear').onclick = stopLoop;
 
+  // Touching the notes: drag up or down to move through the song; a tap on a bar number repeats that bar.
+  // With no section repeating, dragging moves your place. While a section repeats, dragging only looks
+  // around (so you can reach another bar number to stretch the section) and drifts back after a few seconds.
+  let drag = null;
+  const barAtY = y => Math.floor((S.view + (S.hitY - 7 - y) / S.ppb - S.song.pickup) / S.song.barLen) + 1;
   cv.addEventListener('pointerdown', ev => {
     const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-    if (y < S.hitY) { // the left margin of the notes: bar numbers
-      if (x > 52) return;
-      const bar = Math.floor((S.view + (S.hitY - 7 - y) / S.ppb - S.song.pickup) / S.song.barLen) + 1;
-      if (bar >= 1 && S.steps.some(st => barOf(st.t) === bar)) tapBar(bar);
+    if (y < S.hitY) {
+      if (S.mode === 'listen' && S.playing) return;
+      drag = { id: ev.pointerId, x, y0: y, view0: S.view, moved: false };
+      try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* not essential */ }
+      ev.preventDefault();
       return;
     }
     ev.preventDefault();
@@ -953,6 +967,32 @@
     tone(k.m, 0.5);
     if (S.mode === 'learn' && !S.finished) noteInput(k.m, 'tap'); else flash(k.m, 'R');
   });
+  cv.addEventListener('pointermove', ev => {
+    if (!drag || ev.pointerId !== drag.id) return;
+    const y = ev.clientY - cv.getBoundingClientRect().top;
+    if (!drag.moved && Math.abs(y - drag.y0) < 8) return;
+    drag.moved = true; S.browse = true; endHold();
+    const lead = S.mode === 'listen' ? 1 : 0, last = S.steps[S.steps.length - 1].t;
+    S.view = Math.max(S.steps[0].t - lead, Math.min(last, drag.view0 + (y - drag.y0) / S.ppb));
+    if (S.mode === 'listen') { seekListen(); S.idx = Math.max(0, S.steps.findIndex(st => st.t >= S.view - 0.01)); updateUI(); }
+    else if (!S.loopBars) { // moving your place: the nearest note becomes the one to play
+      let best = 0;
+      S.steps.forEach((st, i) => { if (Math.abs(st.t - S.view) < Math.abs(S.steps[best].t - S.view)) best = i; });
+      if (best !== S.idx) { S.idx = best; S.hit.clear(); S.finished = false; prompt(); updateUI(); }
+    }
+  });
+  const endDrag = ev => {
+    if (!drag || ev.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    if (!d.moved) {
+      if (d.x <= 52) { const bar = barAtY(d.y0); if (bar >= 1 && S.steps.some(st => barOf(st.t) === bar)) tapBar(bar); }
+      return;
+    }
+    if (S.loopBars && S.mode === 'learn') S.browseUntil = clock() + 5000; // keep looking for a while, then drift back
+    else S.browse = false;
+  };
+  cv.addEventListener('pointerup', endDrag);
+  cv.addEventListener('pointercancel', endDrag);
   cv.addEventListener('pointerup', released);
 
   // ---------- Song sheet ----------
@@ -1040,7 +1080,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 26' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 27' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
