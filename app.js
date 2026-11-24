@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  const noteName = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+  const noteName = m => NAMES[((m % 12) + 12) % 12].replace('#', '\u266f') + (Math.floor(m / 12) - 1);
   const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
   const COL = { paper: '#efe3c8', leaf: '#f6edd8', ink: '#2a1f14', dim: '#6b5a43', rule: '#b7a37e', R: '#b07a1c', L: '#2f5574', ok: '#3f7a4a', bad: '#c7361f', white: '#fbf5e4', black: '#231a11' };
   const SERIF = 'Baskerville, "Hoefler Text", Palatino, Georgia, serif';
@@ -24,7 +24,7 @@
   const S = {
     id: null, song: null, steps: [], idx: 0, mode: 'learn', playing: false, view: 0, li: 0,
     hands: 'B', tempo: 1, loopA: null, loopB: null, hit: new Set(), misses: [], finished: false,
-    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, browse: false, browseUntil: 0, inset: 0, ppb: 64, loopBars: null
+    flashes: new Map(), keys: [], lo: 48, hi: 71, hitY: 0, W: 0, H: 0, muteMicUntil: 0, hold: null, u: 1, browse: false, browseUntil: 0, inset: 0, ppb: 64, loopBars: null
   };
 
   function barOf(t) {
@@ -688,9 +688,13 @@
     const whites = [];
     for (let m = S.lo; m <= S.hi; m++) if (!isBlack(m)) whites.push(m);
     // S.inset: the strip behind the iPhone home bar. Keys run down into it, but their labels stay above it.
-    const face = Math.min(140, (S.H - S.inset) * 0.36), keyH = face + S.inset, ww = S.W / whites.length;
+    // S.u: drawing scale. On an iPad-sized screen, noteheads, bar numbers and labels are drawn a third larger,
+    // and the keys are longer, in proportion to their width.
+    const ww = S.W / whites.length;
+    S.u = S.W >= 700 ? 1.35 : 1;
+    const face = Math.min(Math.max(140, ww * 5), (S.H - S.inset) * 0.36), keyH = face + S.inset;
     S.hitY = S.H - keyH; S.keyH = keyH; S.keys = [];
-    S.ppb = Math.max(40, Math.min(64, S.hitY / 5.5));
+    S.ppb = Math.max(40, Math.min(64 * S.u, S.hitY / 5.5));
     let wi = 0;
     for (let m = S.lo; m <= S.hi; m++) {
       if (isBlack(m)) S.keys.push({ m, black: true, x: wi * ww - ww * 0.31, w: ww * 0.62, h: face * 0.62 });
@@ -737,7 +741,8 @@
   function drawNote(cx, yb, h, r, ink, open, label, faded) {
     ctx.globalAlpha = faded ? 0.28 : 1;
     ctx.fillStyle = ink;
-    rr(cx - 2.5, yb - h, 5, Math.max(0, h - r), 2.5); ctx.fill();
+    const sw = Math.max(5, r * 0.46);
+    rr(cx - sw / 2, yb - h, sw, Math.max(0, h - r), sw / 2); ctx.fill();
     ctx.save(); ctx.translate(cx, yb - r * 0.78); ctx.rotate(-0.32);
     ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.78, 0, 0, Math.PI * 2); ctx.fill();
     if (open) { ctx.fillStyle = COL.leaf; ctx.beginPath(); ctx.ellipse(0, 0, r * 0.74, r * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
@@ -787,15 +792,15 @@
       const active = S.hands === 'B' || n.h === S.hands || !s.notes.some(x => x.h === S.hands);
       const showFinger = opts.fingers && n.f && active;
       const label = showFinger ? String(n.f) : opts.names ? NAMES[n.m % 12].replace('#', '♯') : '';
-      drawNote(k.x + k.w / 2, yb, h, Math.max(8, Math.min(11, k.w * 0.62)), COL[n.h], n.d >= 2, label, !active);
+      drawNote(k.x + k.w / 2, yb, h, Math.max(8, Math.min(11 * S.u, k.w * 0.62)), COL[n.h], n.d >= 2, label, !active);
     }
     // bar numbers sit in small ruled boxes in the margin, drawn over the notes so they stay readable: tap one to repeat that bar
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `italic 600 13px ${SERIF}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `italic 600 ${13 * S.u}px ${SERIF}`;
     for (const [num, y, inLoop] of tags) {
-      const w = num > 99 ? 34 : 28;
-      ctx.fillStyle = inLoop ? '#7d2a1c' : COL.leaf; ctx.fillRect(3, y - 25, w, 20);
-      ctx.strokeStyle = inLoop ? '#7d2a1c' : 'rgba(42,31,20,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(3.5, y - 24.5, w - 1, 19);
-      ctx.fillStyle = inLoop ? COL.leaf : COL.ink; ctx.fillText(String(num), 3 + w / 2, y - 14.5);
+      const u = S.u, w = (num > 99 ? 34 : 28) * u, bh = 20 * u;
+      ctx.fillStyle = inLoop ? '#7d2a1c' : COL.leaf; ctx.fillRect(3, y - 5 - bh, w, bh);
+      ctx.strokeStyle = inLoop ? '#7d2a1c' : 'rgba(42,31,20,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(3.5, y - 4.5 - bh, w - 1, bh - 1);
+      ctx.fillStyle = inLoop ? COL.leaf : COL.ink; ctx.fillText(String(num), 3 + w / 2, y - 4.5 - bh / 2);
     }
     // keyboard: ivory and ebony with inked outlines
     ctx.fillStyle = COL.ink; ctx.fillRect(0, hitY, W, H - hitY);
@@ -822,8 +827,8 @@
         const lit = targets.has(k.m) || S.flashes.has(k.m) || (S.hit.has(k.m) && S.mode === 'learn');
         if (opts.names && (lit || (!k.black && k.m % 12 === 0)) && k.w >= 11) {
           ctx.fillStyle = lit ? COL.leaf : COL.dim;
-          ctx.font = (lit ? '700 ' : 'italic 500 ') + Math.min(14, k.w * 0.6) + 'px ' + SERIF;
-          ctx.fillText(lit ? NAMES[k.m % 12].replace('#', '♯') : noteName(k.m), k.x + k.w / 2, hitY + k.h - (k.black ? 0 : S.inset) - 14);
+          ctx.font = (lit ? '700 ' : 'italic 500 ') + Math.min(14 * S.u, k.w * 0.6) + 'px ' + SERIF;
+          ctx.fillText(lit ? NAMES[k.m % 12].replace('#', '♯') : noteName(k.m), k.x + k.w / 2, hitY + k.h - (k.black ? 0 : S.inset) - 14 * S.u);
         }
       }
     }
@@ -988,7 +993,7 @@
     if (!drag || ev.pointerId !== drag.id) return;
     const d = drag; drag = null;
     if (!d.moved) {
-      if (d.x <= 52) { const bar = barAtY(d.y0); if (bar >= 1 && S.steps.some(st => barOf(st.t) === bar)) tapBar(bar); }
+      if (d.x <= 52 * S.u) { const bar = barAtY(d.y0); if (bar >= 1 && S.steps.some(st => barOf(st.t) === bar)) tapBar(bar); }
       return;
     }
     if (S.loopBars && S.mode === 'learn') S.browseUntil = clock() + 5000; // keep looking for a while, then drift back
@@ -1083,7 +1088,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
 
   // Shown in Options, so it is easy to tell which version a phone has loaded.
-  $('version').textContent = 'Version 28' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
+  $('version').textContent = 'Version 29' + (builtins[0].song.notes.some(n => n.ly) ? '' : ' (song file is out of date: close and reopen the app)');
 
   // ---------- Start ----------
   new ResizeObserver(resize).observe(cv.parentElement);
