@@ -691,7 +691,7 @@
     // S.u: drawing scale. On an iPad-sized screen, noteheads, bar numbers and labels are drawn a third larger,
     // and the keys are longer, in proportion to their width.
     const ww = S.W / whites.length;
-    S.u = S.W >= 700 ? 1.35 : 1;
+    S.u = S.W >= 700 && window.innerHeight >= 600 ? 1.35 : 1; // a phone on its side is wide but not tall
     const face = Math.min(Math.max(140, ww * 5), (S.H - S.inset) * 0.36), keyH = face + S.inset;
     S.hitY = S.H - keyH; S.keyH = keyH; S.keys = [];
     S.ppb = Math.max(40, Math.min(64 * S.u, S.hitY / 5.5));

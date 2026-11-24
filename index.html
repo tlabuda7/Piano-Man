@@ -166,7 +166,7 @@
   #importErr { color: var(--bad); font-style: italic; }
 
   /* iPad: the same two-row layout, with everything a size larger and nothing stretched across the screen. */
-  @media (min-width: 700px) {
+  @media (min-width: 700px) and (min-height: 600px) {
     body { font-size: 18px; grid-template-columns: minmax(0, 46%) minmax(0, 1fr); }
     .pad { padding-left: max(22px, env(safe-area-inset-left, 0px)); padding-right: max(22px, env(safe-area-inset-right, 0px)); }
     button, select { min-height: 46px; padding: 9px 16px; }
@@ -197,7 +197,7 @@
     .note { font-size: 16px; }
   }
   /* iPad held upright: the song gets a full-width row of its own, and the controls slim down to fit one row. */
-  @media (min-width: 700px) and (max-width: 999px) {
+  @media (min-width: 700px) and (max-width: 999px) and (min-height: 600px) {
     body { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
     #top, #coach { grid-column: 1 / -1; }
     #top { grid-row: 1; padding-block: 10px 4px; }
